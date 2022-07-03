@@ -1,8 +1,5 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-pub mod gpio;
-pub mod uart;
-
 pub unsafe trait Mmio {
     fn addr(&self) -> usize;
 
@@ -20,7 +17,7 @@ pub unsafe trait Mmio {
 }
 
 #[repr(transparent)]
-struct MmioReg(usize);
+pub struct MmioReg(pub usize);
 
 unsafe impl Mmio for MmioReg {
     #[inline]

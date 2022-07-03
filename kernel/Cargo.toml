@@ -1,9 +1,14 @@
 [package]
+edition = "2021"
 name = "rydia"
 version = "0.1.0"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 seq-macro = "0.3.0"
+
+byteorder = {default-features = false}
+num-derive = {default-features = false}
+num-traits = {default-features = false}
+rapid-qoi = {default-features = false, features = ["alloc"]}

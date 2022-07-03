@@ -2,7 +2,8 @@
 #![no_main]
 
 use core::{arch::asm, fmt::Write};
-use rydia::raspi::uart::Uart;
+use rydia::arch::{self, uart::Uart};
+use rydia::drawing::*;
 
 #[no_mangle]
 #[link_section = ".text.boot"]
@@ -28,19 +29,35 @@ unsafe fn _start() {
 
     4:  bl      main
         b       1b
-    "
+    ",
+        options(nomem, nostack)
     );
 }
 
 #[no_mangle]
 fn main() {
-    Uart::init();
-    let mut uart = Uart::shared();
-    writeln!(uart, "Hello, world").unwrap();
+    arch::init();
+
+    let uart = Uart::shared();
+    // writeln!(uart, "hello, world!").unwrap();
+    let _ = uart.write_str("hello, world!\n");
+
+    let mut bitmap = arch::fb::Fb::init(800, 600).unwrap();
+
+    bitmap.fill_circle(Point::new(200, 200), 100, Color::LIGHT_RED.into());
+    bitmap.fill_circle(Point::new(300, 300), 100, Color::LIGHT_GREEN.into());
+    bitmap.fill_circle(Point::new(400, 200), 100, Color::LIGHT_BLUE.into());
 
     loop {
         unsafe {
-            asm!("wfe", options(nomem, nostack));
+            asm!("wfe");
+        }
+        if uart.is_input_ready() {
+            let data = uart.read_byte();
+            if data == '\r' as u8 {
+                uart.write_byte('\n' as u8);
+            }
+            uart.write_byte(data);
         }
     }
 }
