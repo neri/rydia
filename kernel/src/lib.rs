@@ -1,14 +1,12 @@
 #![no_std]
-#![feature(const_trait_impl)]
-#![feature(const_mut_refs)]
-#![feature(const_swap)]
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 
 pub mod arch;
-pub mod drawing;
+pub mod io;
 pub mod mem;
-
+pub mod system;
+pub use meggl as drawing;
 extern crate alloc;
 
 use arch::uart::Uart;

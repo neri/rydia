@@ -2,8 +2,9 @@
 #![no_main]
 
 use core::{arch::asm, fmt::Write};
-use rydia::arch::{self, uart::Uart};
+use rydia::arch::uart::Uart;
 use rydia::drawing::*;
+use rydia::system::System;
 
 #[no_mangle]
 #[link_section = ".text.boot"]
@@ -36,17 +37,20 @@ unsafe fn _start() {
 
 #[no_mangle]
 fn main() {
-    arch::init();
+    unsafe {
+        System::init();
+    }
 
     let uart = Uart::shared();
-    // writeln!(uart, "hello, world!").unwrap();
-    let _ = uart.write_str("hello, world!\n");
+    writeln!(uart, "hello, world!").unwrap();
 
-    let mut bitmap = arch::fb::Fb::init(800, 600).unwrap();
+    let emcon = System::em_console();
+    writeln!(emcon, "Hello, Raspberry Pi!").unwrap();
 
-    bitmap.fill_circle(Point::new(200, 200), 100, Color::LIGHT_RED.into());
-    bitmap.fill_circle(Point::new(300, 300), 100, Color::LIGHT_GREEN.into());
-    bitmap.fill_circle(Point::new(400, 200), 100, Color::LIGHT_BLUE.into());
+    let mut bitmap = System::main_screen();
+    bitmap.fill_circle(Point::new(200, 200), 100, Color::LIGHT_RED);
+    bitmap.fill_circle(Point::new(300, 300), 100, Color::LIGHT_GREEN);
+    bitmap.fill_circle(Point::new(400, 200), 100, Color::LIGHT_BLUE);
 
     loop {
         unsafe {

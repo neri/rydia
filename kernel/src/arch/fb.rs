@@ -5,7 +5,7 @@ pub struct Fb;
 
 impl Fb {
     pub fn init(width: u32, height: u32) -> Result<Bitmap32<'static>, ()> {
-        let mut mbox = Mbox::PROP.mbox::<64>().ok_or(())?;
+        let mut mbox = Mbox::PROP.mbox::<32>().ok_or(())?;
 
         mbox.append(Tag::SET_PHYWH(width, height))?;
 
@@ -29,9 +29,7 @@ impl Fb {
                 let stride = mbox.slice()[index_pitch] as usize / 4;
                 Ok(unsafe { Bitmap32::from_static(ptr, Size::new(w, h), stride) })
             }
-            Err(_) => {
-                panic!("SET FB FAILED");
-            }
+            Err(_) => Err(()),
         }
     }
 }
