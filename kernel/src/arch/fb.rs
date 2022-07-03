@@ -5,7 +5,7 @@ pub struct Fb;
 
 impl Fb {
     pub fn init(width: u32, height: u32) -> Result<Bitmap32<'static>, ()> {
-        let mut mbox = Mbox::PROP.mbox::<32>().ok_or(())?;
+        let mut mbox = Mbox::PROP.mbox::<36>().ok_or(())?;
 
         mbox.append(Tag::SET_PHYWH(width, height))?;
 
