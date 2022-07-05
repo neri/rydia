@@ -4,15 +4,16 @@ use super::raspi;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Gpio {
-    Pin1 = 1,
-    Pin2,
-    Pin3,
-    Pin4,
-    Pin5,
-    Pin6,
-    Pin7,
-    Pin8,
-    Pin9,
+    Pin00 = 0,
+    Pin01,
+    Pin02,
+    Pin03,
+    Pin04,
+    Pin05,
+    Pin06,
+    Pin07,
+    Pin08,
+    Pin09,
     Pin10,
     Pin11,
     Pin12,
@@ -67,6 +68,18 @@ impl Gpio {
     pub const PULL_NONE: u32 = 0;
     pub const PULL_DOWN: u32 = 1;
     pub const PULL_UP: u32 = 2;
+
+    pub const SDA1: Self = Self::Pin02;
+    pub const SCL1: Self = Self::Pin03;
+
+    pub const SPI0_CE1_N: Self = Self::Pin07;
+    pub const SPI0_CE0_N: Self = Self::Pin08;
+    pub const SPI0_MISO: Self = Self::Pin09;
+    pub const SPI0_MOSI: Self = Self::Pin10;
+    pub const SPI0_SCLK: Self = Self::Pin11;
+
+    pub const UART0_TXD: Self = Self::Pin14;
+    pub const UART0_RXD: Self = Self::Pin15;
 
     #[inline]
     pub fn set(&self, value: u32) {
@@ -159,8 +172,8 @@ enum Regs {
 
 impl Regs {
     #[inline]
-    unsafe fn as_reg(&self) -> MmioReg {
-        MmioReg(raspi::mmio_base() + *self as usize)
+    unsafe fn as_reg(&self) -> Mmio32Reg {
+        Mmio32Reg(raspi::mmio_base() + *self as usize)
     }
 
     #[must_use]
@@ -168,7 +181,8 @@ impl Regs {
         let pin_number = pin as usize;
         let field_mask = (1 << field_size) - 1;
         let num_fields = 32 / field_size;
-        let reg = MmioReg(raspi::mmio_base() + (*self as usize) + ((pin_number / num_fields) * 4));
+        let reg =
+            Mmio32Reg(raspi::mmio_base() + (*self as usize) + ((pin_number / num_fields) * 4));
         let shift = (pin_number % num_fields) * field_size;
 
         let mut curval = reg.read();

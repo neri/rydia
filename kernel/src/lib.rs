@@ -1,8 +1,10 @@
 #![no_std]
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
+#![feature(naked_functions)]
 
 pub mod arch;
+pub mod fw;
 pub mod io;
 pub mod mem;
 pub mod system;

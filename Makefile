@@ -1,4 +1,4 @@
-.PHONY: love default all clean install run kernel
+.PHONY: love default all clean test install run kernel
 
 MNT			= ./mnt/
 
@@ -7,6 +7,10 @@ CLANGFLAGS	= -Wall -O2 -ffreestanding -nostdinc -nostdlib -mcpu=cortex-a72+nosim
 OBJCOPY		= gobjcopy
 
 default: kernel
+
+clean:
+
+test:
 
 $(MNT):
 	mkdir $(MNT)
@@ -19,11 +23,10 @@ install: $(MNT) kernel
 
 run:
 	qemu-system-aarch64 -M raspi3b \
--kernel mnt/kernel8.img \
+-kernel mnt/kernel8.img -dtb assets/dtb/bcm2710-rpi-3-b.dtb \
 -serial null -serial stdio
 
 # -usb -device usb-kbd -device usb-tablet \
 # -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT)  \
-# -dtb mnt/bcm2710-rpi-3-b.dtb \
 # -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 

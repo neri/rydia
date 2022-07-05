@@ -8,8 +8,9 @@ pub mod mbox;
 pub mod uart;
 
 #[no_mangle]
+#[naked]
 #[link_section = ".text.boot"]
-unsafe fn _start() {
+unsafe extern "C" fn _start() {
     asm!(
         "
         mrs     x1, mpidr_el1
@@ -19,7 +20,7 @@ unsafe fn _start() {
         b       1b
     2:
 
-        ldr     x1, =_start
+        adr     x1, _start
         mov     sp, x1
 
         ldr     x1, =__bss_start
@@ -32,22 +33,37 @@ unsafe fn _start() {
     4:  bl      main
         b       1b
     ",
-        options(nomem, nostack)
+        options(noreturn)
     );
 }
 
 pub fn init() {
-    uart::Uart::init();
+    raspi::init();
+    uart::Uart::init().unwrap();
 }
 
 pub mod raspi {
-    use core::arch::asm;
+    use core::{
+        arch::asm,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
+    use crate::system::System;
+
+    pub(super) fn init() {
+        let model_name = System::model_name().unwrap();
+        if model_name.starts_with("Raspberry Pi 3") {
+            MMIO_BASE.store(0x3F00_0000, Ordering::Relaxed);
+        } else if model_name.starts_with("Raspberry Pi 4") {
+            MMIO_BASE.store(0xFE00_0000, Ordering::Relaxed);
+        }
+    }
+
+    static MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
+
+    #[inline]
     pub fn mmio_base() -> usize {
-        // raspi3
-        0x3F00_0000
-        // raspi4
-        // 0xFE00_0000
+        MMIO_BASE.load(Ordering::Relaxed)
     }
 
     #[inline]

@@ -1,5 +1,5 @@
 use super::raspi;
-use crate::mem::mmio::Mmio;
+use crate::mem::mmio::Mmio32;
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy)]
@@ -112,7 +112,7 @@ impl Regs {
     }
 }
 
-unsafe impl Mmio for Regs {
+unsafe impl Mmio32 for Regs {
     #[inline]
     fn addr(&self) -> usize {
         Self::base_addr() + *self as usize
@@ -148,6 +148,7 @@ impl RawTag {
 
 #[allow(non_camel_case_types)]
 pub enum Tag {
+    SET_CLKRATE(u32, u32, u32),
     SET_PHYWH(u32, u32),
     SET_VIRTWH(u32, u32),
     SET_VIRTOFF(u32, u32),
@@ -161,6 +162,7 @@ impl Tag {
     #[inline]
     const fn info(&self) -> (RawTag, u32, u32) {
         match *self {
+            Tag::SET_CLKRATE(_, _, _) => (RawTag::SETCLKRATE, 3, 2),
             Tag::SET_PHYWH(_, _) => (RawTag::SETPHYWH, 2, 0),
             Tag::SET_VIRTWH(_, _) => (RawTag::SETVIRTWH, 2, 2),
             Tag::SET_VIRTOFF(_, _) => (RawTag::SETVIRTOFF, 2, 2),
@@ -197,27 +199,33 @@ impl Tag {
         let index = Self::_push(slice, index, len2 * 4)?;
         let result = index;
 
-        let index = match self {
+        let index = match *self {
+            Tag::SET_CLKRATE(x, y, z) => {
+                let index = Self::_push(slice, index, x)?;
+                let index = Self::_push(slice, index, y)?;
+                let index = Self::_push(slice, index, z)?;
+                index
+            }
             Tag::SET_PHYWH(x, y) => {
-                let index = Self::_push(slice, index, *x)?;
-                let index = Self::_push(slice, index, *y)?;
+                let index = Self::_push(slice, index, x)?;
+                let index = Self::_push(slice, index, y)?;
                 index
             }
             Tag::SET_VIRTWH(x, y) => {
-                let index = Self::_push(slice, index, *x)?;
-                let index = Self::_push(slice, index, *y)?;
+                let index = Self::_push(slice, index, x)?;
+                let index = Self::_push(slice, index, y)?;
                 index
             }
             Tag::SET_VIRTOFF(x, y) => {
-                let index = Self::_push(slice, index, *x)?;
-                let index = Self::_push(slice, index, *y)?;
+                let index = Self::_push(slice, index, x)?;
+                let index = Self::_push(slice, index, y)?;
                 index
             }
-            Tag::SET_DEPTH(x) => Self::_push(slice, index, *x)?,
-            Tag::SET_PXLORDR(x) => Self::_push(slice, index, *x)?,
+            Tag::SET_DEPTH(x) => Self::_push(slice, index, x)?,
+            Tag::SET_PXLORDR(x) => Self::_push(slice, index, x)?,
             Tag::GET_FB(x, y) => {
-                let index = Self::_push(slice, index, *x)?;
-                let index = Self::_push(slice, index, *y)?;
+                let index = Self::_push(slice, index, x)?;
+                let index = Self::_push(slice, index, y)?;
                 index
             }
             Tag::GET_PITCH => Self::_push(slice, index, 0)?,

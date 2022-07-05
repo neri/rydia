@@ -1,4 +1,4 @@
-use super::{gpio::*, raspi};
+use super::{gpio::*, mbox::*, raspi};
 use crate::mem::mmio::*;
 use core::fmt::Write;
 
@@ -7,7 +7,7 @@ pub struct Uart;
 static mut UART: Uart = Uart {};
 
 impl Uart {
-    pub const CLOCK: usize = 500_000_000;
+    pub const CLOCK: u32 = 500_000_000;
 
     #[inline]
     pub fn shared<'a>() -> &'a mut Self {
@@ -15,31 +15,38 @@ impl Uart {
     }
 
     #[inline]
-    pub const fn mu_baud(baud: usize) -> u32 {
+    pub const fn mu_baud(baud: u32) -> u32 {
         match Self::CLOCK.checked_div(baud * 8) {
-            Some(v) => (v - 1) as u32,
+            Some(v) => v - 1,
             None => 0,
         }
     }
 
-    pub fn init() {
-        unsafe {
-            Regs::ENABLE.write(Regs::ENABLE.read() | 1); //enable UART1, AUX mini uart
-            Regs::MU_CNTL.write(0);
-            Regs::MU_LCR.write(3); //8 bits
-            Regs::MU_MCR.write(0);
-            Regs::MU_IER.write(0);
-            Regs::MU_IIR.write(0xC6); //disable interrupts
+    pub fn init() -> Result<(), ()> {
+        // unsafe {
+        //     Regs::ENABLE.write(1); //enable UART1, AUX mini uart
+        //     Regs::MU_CNTL.write(0);
+        //     Regs::MU_LCR.write(3); //8 bits
+        //     Regs::MU_MCR.write(0);
+        //     Regs::MU_IER.write(0);
+        //     Regs::MU_IIR.write(0xC6); //disable interrupts
 
-            // Regs::MU_BAUD.write(Self::mu_baud(115200));
-            Regs::MU_BAUD.write(270);
+        //     let mut mbox = Mbox::PROP.mbox::<36>().ok_or(())?;
+        //     mbox.append(Tag::SET_CLKRATE(2, Self::CLOCK, 0))?;
+        //     mbox.call()?;
 
-            Gpio::Pin14.use_as_alt5();
-            Gpio::Pin15.use_as_alt5();
-            Gpio::enable(&[Gpio::Pin14, Gpio::Pin15]);
+        //     Regs::MU_BAUD.write(Self::mu_baud(115200));
+        //     // Regs::MU_BAUD.write(270);
 
-            Regs::MU_CNTL.write(3); //enable RX/TX
-        }
+        //     Gpio::UART0_TXD.use_as_alt5();
+        //     Gpio::UART0_RXD.use_as_alt5();
+        //     Gpio::enable(&[Gpio::UART0_TXD, Gpio::UART0_RXD]);
+
+        //     Regs::MU_CNTL.write(3); //enable RX/TX
+
+        // }
+
+        Ok(())
     }
 
     #[inline]
@@ -107,7 +114,7 @@ impl Regs {
     }
 }
 
-unsafe impl Mmio for Regs {
+unsafe impl Mmio32 for Regs {
     #[inline]
     fn addr(&self) -> usize {
         Self::base_addr() + *self as usize

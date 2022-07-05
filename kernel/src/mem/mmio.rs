@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-pub unsafe trait Mmio {
+pub unsafe trait Mmio32 {
     fn addr(&self) -> usize;
 
     #[inline]
@@ -17,9 +17,9 @@ pub unsafe trait Mmio {
 }
 
 #[repr(transparent)]
-pub struct MmioReg(pub usize);
+pub struct Mmio32Reg(pub usize);
 
-unsafe impl Mmio for MmioReg {
+unsafe impl Mmio32 for Mmio32Reg {
     #[inline]
     fn addr(&self) -> usize {
         self.0

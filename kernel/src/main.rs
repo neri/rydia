@@ -7,16 +7,17 @@ use rydia::drawing::*;
 use rydia::system::System;
 
 #[no_mangle]
-fn main() {
+fn main(dtb: usize) -> ! {
     unsafe {
-        System::init();
+        System::init(dtb);
     }
 
     let uart = Uart::shared();
     writeln!(uart, "hello, world!").unwrap();
 
     let emcon = System::em_console();
-    writeln!(emcon, "Hello, Raspberry Pi!").unwrap();
+    writeln!(emcon, "Hello, world!").unwrap();
+    writeln!(emcon, "model: {}", System::model_name().unwrap()).unwrap();
 
     let mut bitmap = System::main_screen();
     bitmap.fill_circle(Point::new(200, 200), 100, Color::LIGHT_RED);
