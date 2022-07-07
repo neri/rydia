@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::{arch::asm, fmt::Write};
+use core::fmt::Write;
 use rydia::arch::uart::Uart;
 use rydia::drawing::*;
 use rydia::system::System;
@@ -14,6 +14,7 @@ fn main(dtb: usize) -> ! {
 
     let uart = Uart::shared();
     writeln!(uart, "hello, world!").unwrap();
+    writeln!(uart, "model: {}", System::model_name().unwrap()).unwrap();
 
     let emcon = System::em_console();
     writeln!(emcon, "Hello, world!").unwrap();
@@ -25,9 +26,6 @@ fn main(dtb: usize) -> ! {
     bitmap.fill_circle(Point::new(400, 200), 100, Color::LIGHT_BLUE);
 
     loop {
-        unsafe {
-            asm!("wfe");
-        }
         if uart.is_input_ready() {
             let data = uart.read_byte();
             if data == '\r' as u8 {

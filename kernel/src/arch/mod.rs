@@ -5,6 +5,7 @@ use core::arch::asm;
 pub mod fb;
 pub mod gpio;
 pub mod mbox;
+pub mod timer;
 pub mod uart;
 
 #[no_mangle]
@@ -45,18 +46,51 @@ pub fn init() {
 pub mod raspi {
     use core::{
         arch::asm,
+        intrinsics::transmute,
         sync::atomic::{AtomicUsize, Ordering},
     };
 
-    use crate::system::System;
-
     pub(super) fn init() {
-        let model_name = System::model_name().unwrap();
-        if model_name.starts_with("Raspberry Pi 3") {
-            MMIO_BASE.store(0x3F00_0000, Ordering::Relaxed);
-        } else if model_name.starts_with("Raspberry Pi 4") {
-            MMIO_BASE.store(0xFE00_0000, Ordering::Relaxed);
+        // detect board
+        let midr_el1: usize;
+        unsafe {
+            asm!("mrs {}, midr_el1", out(reg) midr_el1);
         }
+        CURRENT_MACHINE_TYPE.store(
+            (match (midr_el1 >> 4) & 0xFFF {
+                // 0xB76 => // rpi1
+                // 0xC07 =>  // rpi2
+                0xD03 => MachineType::RPi3,
+                0xD08 => MachineType::RPi4,
+                _ => MachineType::Unknown,
+            }) as usize,
+            Ordering::Relaxed,
+        );
+
+        MMIO_BASE.store(
+            match current_machine_type() {
+                MachineType::Unknown => 0x2000_0000,
+                MachineType::RPi3 => 0x3F00_0000,
+                MachineType::RPi4 => 0xFE00_0000,
+            },
+            Ordering::Relaxed,
+        );
+    }
+
+    #[inline]
+    pub fn current_machine_type() -> MachineType {
+        unsafe { transmute(CURRENT_MACHINE_TYPE.load(Ordering::Relaxed)) }
+    }
+
+    static CURRENT_MACHINE_TYPE: AtomicUsize = AtomicUsize::new(0);
+
+    #[repr(usize)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+    pub enum MachineType {
+        #[default]
+        Unknown,
+        RPi3,
+        RPi4,
     }
 
     static MMIO_BASE: AtomicUsize = AtomicUsize::new(0);

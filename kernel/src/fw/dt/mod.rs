@@ -109,15 +109,40 @@ impl Header {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Token<'a> {
-    BeginNode(&'a str),
+    BeginNode(NodeName<'a>),
     EndNode,
-    Prop(Name<'a>, *const c_void, usize),
+    Prop(PropName<'a>, *const c_void, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Name<'a>(&'a str);
+pub struct NodeName<'a>(&'a str);
 
-impl Name<'_> {
+impl NodeName<'_> {
+    pub const ROOT: Self = Self("");
+
+    pub const ALIASES: Self = Self("aliases");
+    pub const MEMORY: Self = Self("memory");
+    pub const RESERVED_MEMORY: Self = Self("reserved-memory");
+    pub const CHOSEN: Self = Self("chosen");
+    pub const CPUS: Self = Self("cpus");
+}
+
+impl<'a> NodeName<'a> {
+    #[inline]
+    pub const fn new(name: &'a str) -> Self {
+        Self(name)
+    }
+
+    #[inline]
+    pub const fn as_str(&'a self) -> &'a str {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PropName<'a>(&'a str);
+
+impl PropName<'_> {
     pub const ADSRESS_CELLS: Self = Self("#address-cells");
     pub const CLOCK_CELLS: Self = Self("#clock-cells");
     pub const COMPATIBLE: Self = Self("compatible");
@@ -129,7 +154,7 @@ impl Name<'_> {
     pub const STATUS: Self = Self("status");
 }
 
-impl<'a> Name<'a> {
+impl<'a> PropName<'a> {
     #[inline]
     pub const fn new(name: &'a str) -> Self {
         Self(name)
@@ -165,14 +190,14 @@ impl<'a> Iterator for FdtTokenIter<'a> {
                         index += 1;
                         let p = ptr.add(1) as *const u8;
                         let len = _c_strlen(p);
-                        let name = _c_string(p);
+                        let name = NodeName::new(_c_string(p));
                         index += (len + 4) / 4;
                         break Token::BeginNode(name);
                     }
                     DeviceTree::FDT_PROP => {
                         let data_len = ptr.add(1).read_volatile().to_be() as usize;
                         let name_ptr = ptr.add(2).read_volatile().to_be() as usize;
-                        let name = Name::new(_c_string(self.header.string_ptr().add(name_ptr)));
+                        let name = PropName::new(_c_string(self.header.string_ptr().add(name_ptr)));
                         index += 3 + ((data_len + 3) / 4);
                         break Token::Prop(name, ptr.add(3) as *const c_void, data_len);
                     }
@@ -180,6 +205,7 @@ impl<'a> Iterator for FdtTokenIter<'a> {
                         index += 1;
                         break Token::EndNode;
                     }
+                    // DeviceTree::FDT_END
                     _ => return None,
                 }
             };
@@ -198,9 +224,11 @@ fn _c_string<'a>(s: *const u8) -> &'a str {
 }
 
 fn _c_strlen(s: *const u8) -> usize {
-    let mut len = 0;
-    while unsafe { s.add(len).read_volatile() != 0 } {
-        len += 1
+    unsafe {
+        let mut len = 0;
+        while s.add(len).read_volatile() != 0 {
+            len += 1
+        }
+        len
     }
-    len
 }

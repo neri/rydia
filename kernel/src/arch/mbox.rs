@@ -58,7 +58,7 @@ impl<const N: usize> MboxContext<N> {
         &self.payload.0
     }
 
-    pub fn addr(&self) -> u32 {
+    pub fn mbox_addr(&self) -> u32 {
         let p = self.payload.0.as_ptr() as usize as u32;
         p | (self.chan as u32)
     }
@@ -70,20 +70,20 @@ impl<const N: usize> MboxContext<N> {
                 return Err(());
             }
 
-            let addr = self.addr();
+            let mbox_addr = self.mbox_addr();
 
             while (Regs::STATUS.read() & Self::FULL) != 0 {
                 raspi::no_op();
             }
 
-            Regs::WRITE.write(addr);
+            Regs::WRITE.write(mbox_addr);
 
             loop {
                 while (Regs::STATUS.read() & Self::EMPTY) != 0 {
                     raspi::no_op();
                 }
 
-                if Regs::READ.read() == addr {
+                if Regs::READ.read() == mbox_addr {
                     return (*self.payload.0.get_unchecked(1) == Self::RESPONSE)
                         .then_some(())
                         .ok_or(());
@@ -173,6 +173,7 @@ impl Tag {
         }
     }
 
+    #[inline]
     fn _push(slice: &mut [u32], index: usize, val: u32) -> Result<usize, ()> {
         match slice.get_mut(index) {
             Some(p) => {
@@ -181,6 +182,14 @@ impl Tag {
             }
             None => Err(()),
         }
+    }
+
+    #[inline]
+    fn _push_slice(slice: &mut [u32], mut index: usize, data: &[u32]) -> Result<usize, ()> {
+        for val in data {
+            index = Self::_push(slice, index, *val)?;
+        }
+        Ok(index)
     }
 
     pub fn append_to(&self, slice: &mut [u32]) -> Result<usize, ()> {
@@ -200,34 +209,13 @@ impl Tag {
         let result = index;
 
         let index = match *self {
-            Tag::SET_CLKRATE(x, y, z) => {
-                let index = Self::_push(slice, index, x)?;
-                let index = Self::_push(slice, index, y)?;
-                let index = Self::_push(slice, index, z)?;
-                index
-            }
-            Tag::SET_PHYWH(x, y) => {
-                let index = Self::_push(slice, index, x)?;
-                let index = Self::_push(slice, index, y)?;
-                index
-            }
-            Tag::SET_VIRTWH(x, y) => {
-                let index = Self::_push(slice, index, x)?;
-                let index = Self::_push(slice, index, y)?;
-                index
-            }
-            Tag::SET_VIRTOFF(x, y) => {
-                let index = Self::_push(slice, index, x)?;
-                let index = Self::_push(slice, index, y)?;
-                index
-            }
+            Tag::SET_CLKRATE(x, y, z) => Self::_push_slice(slice, index, &[x, y, z])?,
+            Tag::SET_PHYWH(x, y) => Self::_push_slice(slice, index, &[x, y])?,
+            Tag::SET_VIRTWH(x, y) => Self::_push_slice(slice, index, &[x, y])?,
+            Tag::SET_VIRTOFF(x, y) => Self::_push_slice(slice, index, &[x, y])?,
             Tag::SET_DEPTH(x) => Self::_push(slice, index, x)?,
             Tag::SET_PXLORDR(x) => Self::_push(slice, index, x)?,
-            Tag::GET_FB(x, y) => {
-                let index = Self::_push(slice, index, x)?;
-                let index = Self::_push(slice, index, y)?;
-                index
-            }
+            Tag::GET_FB(x, y) => Self::_push_slice(slice, index, &[x, y])?,
             Tag::GET_PITCH => Self::_push(slice, index, 0)?,
         };
 

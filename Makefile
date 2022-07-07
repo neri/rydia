@@ -24,9 +24,8 @@ install: $(MNT) kernel
 run:
 	qemu-system-aarch64 -M raspi3b \
 -kernel mnt/kernel8.img -dtb assets/dtb/bcm2710-rpi-3-b.dtb \
--serial null -serial stdio
+-usb -device usb-kbd -device usb-tablet \
+-serial null -serial mon:stdio
 
-# -usb -device usb-kbd -device usb-tablet \
-# -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT)  \
 # -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 

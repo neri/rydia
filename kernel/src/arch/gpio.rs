@@ -64,6 +64,7 @@ impl Gpio {
     pub const FUNCTION_OUT: u32 = 1;
     pub const FUNCTION_ALT5: u32 = 2;
     pub const FUNCTION_ALT3: u32 = 7;
+    pub const FUNCTION_ALT0: u32 = 4;
 
     pub const PULL_NONE: u32 = 0;
     pub const PULL_DOWN: u32 = 1;
@@ -114,6 +115,12 @@ impl Gpio {
     }
 
     #[inline]
+    pub fn use_as_alt0(&self) {
+        self.pull(Gpio::PULL_NONE);
+        self.function(Gpio::FUNCTION_ALT0);
+    }
+
+    #[inline]
     pub fn init_output_pin_with_pull_none(&self) {
         self.pull(Gpio::PULL_NONE);
         self.function(Gpio::FUNCTION_OUT);
@@ -133,11 +140,11 @@ impl Gpio {
         let acc = pins.iter().fold(0, |a, v| a | (1 << *v as usize));
         unsafe {
             Regs::GPPUD.as_reg().write(0);
-            for _ in 0..300 {
+            for _ in 0..150 {
                 raspi::no_op();
             }
             Regs::GPPUDCLK0.as_reg().write(acc);
-            for _ in 0..300 {
+            for _ in 0..150 {
                 raspi::no_op();
             }
             Regs::GPPUDCLK0.as_reg().write(0);
@@ -149,31 +156,42 @@ impl Gpio {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 enum Regs {
-    GPFSEL0 = 0x0020_0000,
-    GPFSEL1 = 0x0020_0004,
-    GPFSEL2 = 0x0020_0008,
-    GPFSEL3 = 0x0020_000C,
-    GPFSEL4 = 0x0020_0010,
-    GPFSEL5 = 0x0020_0014,
-    GPSET0 = 0x0020_001C,
-    GPSET1 = 0x0020_0020,
-    GPCLR0 = 0x0020_0028,
-    GPLEV0 = 0x0020_0034,
-    GPLEV1 = 0x0020_0038,
-    GPEDS0 = 0x0020_0040,
-    GPEDS1 = 0x0020_0044,
-    GPHEN0 = 0x0020_0064,
-    GPHEN1 = 0x0020_0068,
-    GPPUD = 0x0020_0094,
-    GPPUDCLK0 = 0x0020_0098,
-    GPPUDCLK1 = 0x0020_009C,
-    GPPUPPDN0 = 0x0020_00E4,
+    GPFSEL0 = 0x0000,
+    GPFSEL1 = 0x0004,
+    GPFSEL2 = 0x0008,
+    GPFSEL3 = 0x000C,
+    GPFSEL4 = 0x0010,
+    GPFSEL5 = 0x0014,
+    GPSET0 = 0x001C,
+    GPSET1 = 0x0020,
+    GPCLR0 = 0x0028,
+    GPLEV0 = 0x0034,
+    GPLEV1 = 0x0038,
+    GPEDS0 = 0x0040,
+    GPEDS1 = 0x0044,
+    GPREN0 = 0x004C,
+    GPREN1 = 0x0050,
+    GPFEN0 = 0x0058,
+    GPFEN1 = 0x005C,
+    GPHEN0 = 0x0064,
+    GPHEN1 = 0x0068,
+    GPLEN0 = 0x0070,
+    GPLEN1 = 0x0074,
+    GPPUD = 0x0094,
+    GPPUDCLK0 = 0x0098,
+    GPPUDCLK1 = 0x009C,
+    GPPUPPDN0 = 0x00E4,
 }
 
 impl Regs {
     #[inline]
+    unsafe fn base_addr(&self) -> usize {
+        raspi::mmio_base() + 0x0020_0000 + *self as usize
+    }
+
+    #[inline]
     unsafe fn as_reg(&self) -> Mmio32Reg {
-        Mmio32Reg(raspi::mmio_base() + *self as usize)
+        Mmio32Reg(self.base_addr())
     }
 
     #[must_use]
@@ -181,8 +199,7 @@ impl Regs {
         let pin_number = pin as usize;
         let field_mask = (1 << field_size) - 1;
         let num_fields = 32 / field_size;
-        let reg =
-            Mmio32Reg(raspi::mmio_base() + (*self as usize) + ((pin_number / num_fields) * 4));
+        let reg = Mmio32Reg(self.base_addr() + ((pin_number / num_fields) * 4));
         let shift = (pin_number % num_fields) * field_size;
 
         let mut curval = reg.read();

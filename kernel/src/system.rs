@@ -47,12 +47,12 @@ impl System {
             for token in dt.header().tokens() {
                 match token {
                     dt::Token::BeginNode(name) => {
-                        if name != "" {
+                        if name != dt::NodeName::ROOT {
                             break;
                         }
                     }
                     dt::Token::Prop(name, ptr, len) => match name {
-                        dt::Name::MODEL => {
+                        dt::PropName::MODEL => {
                             shared.model_name = (ptr as _, len);
                         }
                         _ => (),
@@ -64,7 +64,7 @@ impl System {
 
         arch::init();
 
-        let main_screen = arch::fb::Fb::init(800, 600).expect("Fb::init failed");
+        let main_screen = arch::fb::Fb::init(1280, 720).expect("Fb::init failed");
         shared.main_screen = Some(UnsafeCell::new(main_screen));
     }
 
