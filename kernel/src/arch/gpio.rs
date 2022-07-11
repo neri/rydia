@@ -1,6 +1,6 @@
 use crate::mem::mmio::*;
 
-use super::raspi;
+use super::{cpu::Cpu, raspi};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Gpio {
@@ -141,11 +141,11 @@ impl Gpio {
         unsafe {
             Regs::GPPUD.as_reg().write(0);
             for _ in 0..150 {
-                raspi::no_op();
+                Cpu::no_op();
             }
             Regs::GPPUDCLK0.as_reg().write(acc);
             for _ in 0..150 {
-                raspi::no_op();
+                Cpu::no_op();
             }
             Regs::GPPUDCLK0.as_reg().write(0);
         }

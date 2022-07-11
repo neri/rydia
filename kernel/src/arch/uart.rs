@@ -1,11 +1,11 @@
-use super::{gpio::*, mbox::*, raspi};
+use super::{cpu::*, gpio::*, mbox::*, raspi};
 use crate::mem::mmio::*;
 use core::fmt::Write;
 
 pub struct Uart;
 
 static mut UART: Uart = Uart {};
-// static mut UART0: Uart0 = Uart0::CR;
+static mut UART0: Uart0 = Uart0::CR;
 
 impl Uart {
     pub const CLOCK: u32 = 500_000_000;
@@ -36,9 +36,10 @@ impl Uart {
             Uart1::IER.write(0);
             Uart1::IIR.write(0xC6); //disable interrupts
 
+            // TODO:
             match raspi::current_machine_type() {
                 raspi::MachineType::Unknown => {
-                    // TODO:
+                    //
                 }
                 raspi::MachineType::RPi3 => {
                     Uart1::BAUD.write(270);
@@ -66,7 +67,7 @@ impl Uart {
 
     pub fn write_byte(&self, ch: u8) {
         while !self.is_output_ready() {
-            raspi::no_op();
+            Cpu::no_op();
         }
         unsafe {
             Uart1::IO.write(ch as u32);
@@ -75,7 +76,7 @@ impl Uart {
 
     pub fn read_byte(&self) -> u8 {
         while !self.is_input_ready() {
-            raspi::no_op();
+            Cpu::no_op();
         }
         unsafe { Uart1::IO.read() as u8 }
     }
@@ -128,6 +129,11 @@ unsafe impl Mmio32 for Uart0 {
 
 #[allow(dead_code)]
 impl Uart0 {
+    #[inline]
+    pub fn shared<'a>() -> &'a mut Self {
+        unsafe { &mut UART0 }
+    }
+
     pub fn init() -> Result<(), ()> {
         unsafe {
             // Disable UART0.
@@ -141,7 +147,7 @@ impl Uart0 {
             Uart0::ICR.write(0x7FF);
 
             let mut mbox = Mbox::PROP.mbox::<10>().ok_or(())?;
-            mbox.append(Tag::SET_CLKRATE(2, 3000000, 0))?;
+            mbox.append(Tag::SET_CLKRATE(ClockId::UART, 3000000, 0))?;
             mbox.call()?;
 
             // Divider = 3000000 / (16 * 115200) = 1.627 = ~1.
@@ -173,7 +179,7 @@ impl Uart0 {
 
     pub fn write_byte(&self, ch: u8) {
         while !self.is_output_ready() {
-            raspi::no_op();
+            Cpu::no_op();
         }
         unsafe {
             Uart0::DR.write(ch as u32);
@@ -182,7 +188,7 @@ impl Uart0 {
 
     pub fn read_byte(&self) -> u8 {
         while !self.is_input_ready() {
-            raspi::no_op();
+            Cpu::no_op();
         }
         unsafe { Uart0::DR.read() as u8 }
     }

@@ -89,13 +89,27 @@ impl Header {
     #[inline]
     pub fn struct_ptr(&self) -> *const u32 {
         let p = self as *const Self as *const u8;
-        unsafe { p.add(self.off_dt_struct()) as *const u32 }
+        unsafe { p.add(self.off_dt_struct()) as *const _ }
     }
 
     #[inline]
     pub fn string_ptr(&self) -> *const u8 {
         let p = self as *const Self as *const u8;
         unsafe { p.add(self.off_dt_strings()) }
+    }
+
+    #[inline]
+    pub fn reserve_map_ptr(&self) -> *const u64 {
+        let p = self as *const Self as *const u8;
+        unsafe { p.add(self.off_mem_rsvmap()) as *const _ }
+    }
+
+    #[inline]
+    pub fn reserved_maps(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        FdtRsvMapIter {
+            header: self,
+            index: 0,
+        }
     }
 
     #[inline]
@@ -115,7 +129,7 @@ pub enum Token<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NodeName<'a>(&'a str);
+pub struct NodeName<'a>(pub &'a str);
 
 impl NodeName<'_> {
     pub const ROOT: Self = Self("");
@@ -125,6 +139,14 @@ impl NodeName<'_> {
     pub const RESERVED_MEMORY: Self = Self("reserved-memory");
     pub const CHOSEN: Self = Self("chosen");
     pub const CPUS: Self = Self("cpus");
+
+    pub fn without_unit(&self) -> Self {
+        if let Some(len) = self.0.find("@") {
+            Self(&self.0[..len])
+        } else {
+            Self(&self.0)
+        }
+    }
 }
 
 impl<'a> NodeName<'a> {
@@ -140,18 +162,37 @@ impl<'a> NodeName<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PropName<'a>(&'a str);
+pub struct PropName<'a>(pub &'a str);
 
 impl PropName<'_> {
-    pub const ADSRESS_CELLS: Self = Self("#address-cells");
+    /// #address-cells <u32>
+    pub const ADDRESS_CELLS: Self = Self("#address-cells");
+    ///
     pub const CLOCK_CELLS: Self = Self("#clock-cells");
+    /// compatible <string-list>
     pub const COMPATIBLE: Self = Self("compatible");
+    /// device_type (deprecated) <string>
+    pub const DEVICE_TYPE: Self = Self("device_type");
+    /// dma-coherent <empty>
+    pub const DMA_COHERENT: Self = Self("dma-coherent");
+    /// dma-ranges <prop-encoded-array>
+    pub const DMA_RANGES: Self = Self("dma-ranges");
+    /// model <string>
     pub const MODEL: Self = Self("model");
+    /// name (deprecated) <string>
+    pub const NAME: Self = Self("name");
+    /// phandle <u32>
     pub const PHANDLE: Self = Self("phandle");
+    /// ranges <prop-encoded-array>
     pub const RANGES: Self = Self("ranges");
+    /// reg <prop-encoded-array>
     pub const REG: Self = Self("reg");
+    /// #size-cells <u32>
     pub const SIZE_CELLS: Self = Self("#size-cells");
+    /// status <string>
     pub const STATUS: Self = Self("status");
+    /// virtual-reg <u32>
+    pub const VIRTUAL_REG: Self = Self("virtual-reg");
 }
 
 impl<'a> PropName<'a> {
@@ -166,7 +207,6 @@ impl<'a> PropName<'a> {
     }
 }
 
-#[allow(dead_code)]
 struct FdtTokenIter<'a> {
     header: &'a Header,
     index: usize,
@@ -190,14 +230,14 @@ impl<'a> Iterator for FdtTokenIter<'a> {
                         index += 1;
                         let p = ptr.add(1) as *const u8;
                         let len = _c_strlen(p);
-                        let name = NodeName::new(_c_string(p));
+                        let name = NodeName(_c_string(p));
                         index += (len + 4) / 4;
                         break Token::BeginNode(name);
                     }
                     DeviceTree::FDT_PROP => {
                         let data_len = ptr.add(1).read_volatile().to_be() as usize;
                         let name_ptr = ptr.add(2).read_volatile().to_be() as usize;
-                        let name = PropName::new(_c_string(self.header.string_ptr().add(name_ptr)));
+                        let name = PropName(_c_string(self.header.string_ptr().add(name_ptr)));
                         index += 3 + ((data_len + 3) / 4);
                         break Token::Prop(name, ptr.add(3) as *const c_void, data_len);
                     }
@@ -230,5 +270,28 @@ fn _c_strlen(s: *const u8) -> usize {
             len += 1
         }
         len
+    }
+}
+
+struct FdtRsvMapIter<'a> {
+    header: &'a Header,
+    index: usize,
+}
+
+impl Iterator for FdtRsvMapIter<'_> {
+    type Item = (u64, u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe {
+            let ptr = self.header.reserve_map_ptr().add(self.index);
+            let base = ptr.read_volatile().to_be();
+            let size = ptr.add(1).read_volatile().to_be();
+            if size > 0 {
+                self.index += 2;
+                Some((base, size))
+            } else {
+                None
+            }
+        }
     }
 }

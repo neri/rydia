@@ -25,7 +25,7 @@ run:
 	qemu-system-aarch64 -M raspi3b \
 -kernel mnt/kernel8.img -dtb assets/dtb/bcm2710-rpi-3-b.dtb \
 -usb -device usb-kbd -device usb-tablet \
--serial null -serial mon:stdio
+-serial mon:stdio
 
 # -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 

@@ -6,6 +6,7 @@ use crate::{
     fw,
     fw::dt,
     io::{emcon::EmConsole, font::FontManager},
+    mem,
 };
 use core::{cell::UnsafeCell, ptr::null, slice};
 
@@ -42,7 +43,15 @@ impl System {
     pub unsafe fn init(dtb: usize) {
         let shared = Self::shared_mut();
 
-        shared.device_tree = dt::DeviceTree::parse(dtb as *const u8).ok();
+        arch::init_minimal();
+
+        if dtb != 0 {
+            if let Some(dt) = dt::DeviceTree::parse(dtb as *const u8).ok() {
+                mem::MemoryManager::init_first(mem::InitializationSource::DeviceTree(&dt));
+                shared.device_tree = Some(dt);
+            }
+        }
+
         if let Some(dt) = shared.device_tree.as_ref() {
             for token in dt.header().tokens() {
                 match token {
@@ -62,8 +71,6 @@ impl System {
             }
         }
 
-        arch::init();
-
         let main_screen = arch::fb::Fb::init(1280, 720).expect("Fb::init failed");
         shared.main_screen = Some(UnsafeCell::new(main_screen));
     }
@@ -76,6 +83,11 @@ impl System {
     #[inline]
     pub fn em_console<'a>() -> &'a mut EmConsole {
         unsafe { &mut Self::shared_mut().em_console }
+    }
+
+    #[inline]
+    pub fn device_tree<'a>() -> Option<&'a fw::dt::DeviceTree> {
+        Self::shared().device_tree.as_ref()
     }
 
     #[inline]

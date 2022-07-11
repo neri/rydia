@@ -1,4 +1,4 @@
-use super::raspi;
+use super::{cpu::Cpu, raspi};
 use crate::mem::mmio::Mmio32;
 
 #[allow(non_camel_case_types)]
@@ -73,14 +73,14 @@ impl<const N: usize> MboxContext<N> {
             let mbox_addr = self.mbox_addr();
 
             while (Regs::STATUS.read() & Self::FULL) != 0 {
-                raspi::no_op();
+                Cpu::no_op();
             }
 
             Regs::WRITE.write(mbox_addr);
 
             loop {
                 while (Regs::STATUS.read() & Self::EMPTY) != 0 {
-                    raspi::no_op();
+                    Cpu::no_op();
                 }
 
                 if Regs::READ.read() == mbox_addr {
@@ -122,6 +122,7 @@ unsafe impl Mmio32 for Regs {
 #[repr(align(16))]
 pub struct Payload<const N: usize>([u32; N]);
 
+#[repr(u32)]
 #[derive(Debug, Clone, Copy)]
 pub enum RawTag {
     LAST = 0,
@@ -129,6 +130,9 @@ pub enum RawTag {
     GETSERIAL = 0x10004,
 
     SETPOWER = 0x28001,
+    GetClockState = 0x00030001,
+    SetClockState = 0x00038001,
+    GetClockRate = 0x00030002,
     SETCLKRATE = 0x38002,
     SETPHYWH = 0x48003,
     SETVIRTWH = 0x48004,
@@ -146,9 +150,28 @@ impl RawTag {
     }
 }
 
+#[repr(u32)]
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy)]
+pub enum ClockId {
+    UART = 0x000000002,
+    ARM = 0x000000003,
+    CORE = 0x000000004,
+    V3D = 0x000000005,
+    H264 = 0x000000006,
+    ISP = 0x000000007,
+    SDRAM = 0x000000008,
+    PIXEL = 0x000000009,
+    PWM = 0x00000000a,
+    HEVC = 0x00000000b,
+    EMMC2 = 0x00000000c,
+    M2MC = 0x00000000d,
+    PIXEL_BVB = 0x00000000e,
+}
+
 #[allow(non_camel_case_types)]
 pub enum Tag {
-    SET_CLKRATE(u32, u32, u32),
+    SET_CLKRATE(ClockId, u32, u32),
     SET_PHYWH(u32, u32),
     SET_VIRTWH(u32, u32),
     SET_VIRTOFF(u32, u32),
@@ -209,7 +232,7 @@ impl Tag {
         let result = index;
 
         let index = match *self {
-            Tag::SET_CLKRATE(x, y, z) => Self::_push_slice(slice, index, &[x, y, z])?,
+            Tag::SET_CLKRATE(x, y, z) => Self::_push_slice(slice, index, &[x as u32, y, z])?,
             Tag::SET_PHYWH(x, y) => Self::_push_slice(slice, index, &[x, y])?,
             Tag::SET_VIRTWH(x, y) => Self::_push_slice(slice, index, &[x, y])?,
             Tag::SET_VIRTOFF(x, y) => Self::_push_slice(slice, index, &[x, y])?,
