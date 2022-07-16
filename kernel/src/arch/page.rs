@@ -33,6 +33,18 @@ impl PhysicalAddress {
         self.0 as usize
     }
 
+    #[inline]
+    pub const fn rounding_up(&self, align: usize) -> Self {
+        let delta = align as u64 - 1;
+        let mask = !delta;
+        Self(self.0.wrapping_add(delta) & mask)
+    }
+
+    #[inline]
+    pub const fn round_up(&mut self, align: usize) {
+        *self = self.rounding_up(align);
+    }
+
     /// Gets a pointer identical to the specified physical address.
     ///
     /// # Safety

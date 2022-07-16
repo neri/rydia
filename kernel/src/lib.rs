@@ -1,8 +1,9 @@
 #![no_std]
-#![feature(lang_items)]
 #![feature(alloc_error_handler)]
-#![feature(naked_functions)]
+#![feature(const_mut_refs)]
 #![feature(const_trait_impl)]
+#![feature(lang_items)]
+#![feature(naked_functions)]
 #![feature(negative_impls)]
 
 #[macro_use]

@@ -35,20 +35,21 @@ impl Spinlock {
 
     pub fn lock(&self) {
         if !self.try_lock() {
-            while self
-                .value
-                .compare_exchange_weak(
-                    Self::UNLOCKED_VALUE,
-                    Self::LOCKED_VALUE,
-                    Ordering::Acquire,
-                    Ordering::Relaxed,
-                )
-                .is_err()
-            {
-                unsafe {
-                    asm!("wfe");
-                }
-            }
+            todo!()
+            // while self
+            //     .value
+            //     .compare_exchange_weak(
+            //         Self::UNLOCKED_VALUE,
+            //         Self::LOCKED_VALUE,
+            //         Ordering::Acquire,
+            //         Ordering::Relaxed,
+            //     )
+            //     .is_err()
+            // {
+            //     unsafe {
+            //         asm!("wfe");
+            //     }
+            // }
         }
     }
 
