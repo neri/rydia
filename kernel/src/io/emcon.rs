@@ -29,18 +29,24 @@ impl EmConsole {
     }
 
     fn dims(&self) -> (isize, isize) {
+        let bitmap = match System::main_screen() {
+            Some(v) => v,
+            None => return (0, 0),
+        };
         let font = self.font;
         let font_size = Size::new(font.width(), font.line_height());
-        let bitmap = System::main_screen();
         let cols = (bitmap.width() as isize - Self::PADDING * 2) / font_size.width();
         let rows = (bitmap.height() as isize - Self::PADDING * 2) / font_size.height();
         (cols, rows)
     }
 
     pub fn write_char(&mut self, c: char) {
+        let mut bitmap = match System::main_screen() {
+            Some(v) => v,
+            None => return,
+        };
         let font = self.font;
         let font_size = Size::new(font.width(), font.line_height());
-        let mut bitmap = System::main_screen();
         let bitmap = &mut bitmap;
 
         // check bounds

@@ -1,15 +1,14 @@
-use crate::{fw::dt::DeviceTree, mem::MemoryManager, system::System};
-use _core::sync::atomic::{AtomicU64, Ordering};
+use crate::{fw::dt::DeviceTree, mem::MemoryManager};
 use bitflags::*;
 use core::{
     alloc::Layout,
     arch::asm,
     ffi::c_void,
     fmt,
-    fmt::Write,
     iter::Step,
     num::NonZeroU64,
     ops::{Add, BitAnd, BitOr, Mul, Not, Sub},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 #[repr(transparent)]
@@ -277,9 +276,27 @@ impl PageManager {
 
             for range in dt.memory_ranges().unwrap() {
                 let start = range.0;
-                let end = range.0 + range.1;
+                let end = (range.0 + range.1).rounding_up(Self::PAGE_SIZE_2M);
                 let base = table_l2.add(start.as_usize() / Self::PAGE_SIZE_2M);
-                let attr = PageAttributes::block(Shareable::Inner, AttributeIndex::Conventional);
+                let attr = PageAttributes::block(Some(Shareable::Inner), AttributeIndex::Normal);
+                for (index, oa) in (start..end)
+                    .into_iter()
+                    .step_by(Self::PAGE_SIZE_2M)
+                    .enumerate()
+                {
+                    base.add(index)
+                        .write_volatile(TranslationTableDescriptor::new(oa, attr));
+                }
+            }
+
+            for range in super::vram_memlist() {
+                if range.1 == 0 {
+                    continue;
+                }
+                let start = range.0;
+                let end = (range.0 + range.1).rounding_up(Self::PAGE_SIZE_2M);
+                let base = table_l2.add(start.as_usize() / Self::PAGE_SIZE_2M);
+                let attr = PageAttributes::block(Some(Shareable::Outer), AttributeIndex::Vram);
                 for (index, oa) in (start..end)
                     .into_iter()
                     .step_by(Self::PAGE_SIZE_2M)
@@ -291,10 +308,13 @@ impl PageManager {
             }
 
             for range in super::device_memlist() {
+                if range.1 == 0 {
+                    continue;
+                }
                 let start = range.0;
-                let end = range.0 + range.1;
+                let end = (range.0 + range.1).rounding_up(Self::PAGE_SIZE_2M);
                 let base = table_l2.add(start.as_usize() / Self::PAGE_SIZE_2M);
-                let attr = PageAttributes::block(Shareable::No, AttributeIndex::Device);
+                let attr = PageAttributes::block(None, AttributeIndex::Device);
                 for (index, oa) in (start..end)
                     .into_iter()
                     .step_by(Self::PAGE_SIZE_2M)
@@ -320,7 +340,7 @@ impl PageManager {
                 .step_by(Self::PAGE_SIZE_MIN)
                 .enumerate()
             {
-                let oa = PhysicalAddress::from_usize(table_l2 as usize) + addr;
+                let oa = PhysicalAddress::from_usize(table_l2 as usize + addr);
                 table_l1
                     .add(index)
                     .write_volatile(TranslationTableDescriptor::new(oa, attr));
@@ -328,9 +348,6 @@ impl PageManager {
 
             TTBR0.store(table_l1 as usize as u64, Ordering::SeqCst);
 
-            // let mut sctlr: u64;
-            // asm!("mrs {}, sctlr_el1", out(reg)sctlr);
-            // sctlr |= 0x00C0_181F;
             SCTLR.store(0x00C0_181F, Ordering::SeqCst);
         }
     }
@@ -341,9 +358,11 @@ impl PageManager {
 
         MAIR.load_el1();
 
-        TCR.load_el1();
-
         asm!("msr ttbr0_el1, {}", in(reg)TTBR0.load(Ordering::Relaxed));
+
+        asm!("isb");
+
+        TCR.load_el1();
 
         asm!("isb
         msr sctlr_el1, {}
@@ -528,16 +547,17 @@ impl MemmoryAttributeIndirectionRegister {
 impl const Default for MemmoryAttributeIndirectionRegister {
     #[inline]
     fn default() -> Self {
-        Self(0x00_00_00_00_00_00_44_ee)
+        Self(0x4e_00_44_ff)
     }
 }
 
 #[repr(u64)]
 #[derive(Debug, Clone, Copy)]
 pub enum AttributeIndex {
-    Conventional,
+    Normal,
     NoCache,
     Device,
+    Vram,
 }
 
 #[repr(transparent)]
@@ -577,14 +597,12 @@ pub enum TcrGranule1 {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Shareable {
-    No = 0b00,
     Outer = 0b10,
     Inner = 0b11,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Cacheable {
-    No = 0b00,
     WriteBack = 0b01,
     WriteThru = 0b10,
     WriteBackNoCache = 0b11,
@@ -644,8 +662,12 @@ impl PageAttributes {
     const AF: u64 = 1 << 10;
 
     #[inline]
-    pub const fn block(sh: Shareable, attr_index: AttributeIndex) -> Self {
-        Self(Self::AF | ((sh as u64) << 8) | ((attr_index as u64) << 2))
+    pub const fn block(sh: Option<Shareable>, attr_index: AttributeIndex) -> Self {
+        let sh = match sh {
+            Some(v) => v as u64,
+            None => 0,
+        };
+        Self(Self::AF | (sh << 8) | ((attr_index as u64) << 2))
     }
 
     #[inline]

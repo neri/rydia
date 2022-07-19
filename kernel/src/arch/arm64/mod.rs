@@ -8,6 +8,7 @@ pub mod spin;
 
 use self::page::PhysicalAddress;
 use crate::io::uart::Uart;
+use meggl::TrueColor;
 
 #[inline]
 pub unsafe fn init_early(dtb: usize) {
@@ -20,6 +21,11 @@ pub fn std_uart<'a>() -> &'a mut dyn Uart {
 }
 
 #[inline]
+pub fn std_screen() -> Option<(*mut TrueColor, isize, isize, usize)> {
+    raspi::std_screen()
+}
+
+#[inline]
 pub fn max_pa() -> PhysicalAddress {
     raspi::max_pa()
 }
@@ -27,6 +33,11 @@ pub fn max_pa() -> PhysicalAddress {
 #[inline]
 pub fn device_memlist() -> impl Iterator<Item = (PhysicalAddress, usize)> {
     raspi::device_memlist()
+}
+
+#[inline]
+pub fn vram_memlist() -> impl Iterator<Item = (PhysicalAddress, usize)> {
+    raspi::vram_memlist()
 }
 
 #[inline]

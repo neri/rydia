@@ -1,16 +1,17 @@
+use super::{page::PageManager, spin::Spinlock};
 use crate::{
     arch::{arm64::raspi::fb::Fb, cpu::Cpu},
-    mem::{mmio, PhysicalAddress},
+    mem::PhysicalAddress,
     system::System,
 };
 use core::{
     arch::asm,
     fmt::Write,
     intrinsics::transmute,
-    sync::atomic::{AtomicUsize, Ordering},
+    ptr::null_mut,
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
-
-use super::{page::PageManager, spin::Spinlock};
+use meggl::TrueColor;
 
 pub mod fb;
 pub mod gpio;
@@ -113,7 +114,7 @@ unsafe fn _smp_main(_: usize, cpuid: usize) -> ! {
 
     PageManager::init_mp();
 
-    while SMP_BLOCK1.load(Ordering::SeqCst) == 0 {
+    while SMP_BLOCK1.load(Ordering::Acquire) == 0 {
         asm!("nop");
     }
 
@@ -121,7 +122,7 @@ unsafe fn _smp_main(_: usize, cpuid: usize) -> ! {
         writeln!(stdout, "SPIN TEST: #{} OK", cpuid).unwrap();
     });
 
-    SMP_TEST.fetch_or(1 << cpuid, Ordering::SeqCst);
+    SMP_TEST.fetch_or(1 << cpuid, Ordering::Release);
     asm!("sev");
 
     loop {
@@ -185,6 +186,12 @@ pub(super) unsafe fn init_early(dtb: usize) {
 
     uart::Uart0::init().unwrap();
 
+    let (ptr, w, h, stride) = Fb::init(1280, 720).unwrap();
+    STD_SCR_PTR.store(ptr as usize, Ordering::Relaxed);
+    STD_SCR_W.store(w as u32, Ordering::Relaxed);
+    STD_SCR_H.store(h as u32, Ordering::Relaxed);
+    STD_SCR_S.store(stride as u32, Ordering::Relaxed);
+
     crate::mem::MemoryManager::init_early(_end().rounding_up(0x1000), 0x40_0000);
     PageManager::init_early(dtb);
 
@@ -199,17 +206,14 @@ pub(super) unsafe fn init_early(dtb: usize) {
     let (status, val) = _test_spin(&mut test);
     writeln!(stdout, "SPIN TEST: {} {:x} {:x}", status, val, test).unwrap();
 
-    SMP_BLOCK1.store(1, Ordering::SeqCst);
+    SMP_BLOCK1.store(1, Ordering::Release);
     asm!("sev");
 
-    while SMP_TEST.load(Ordering::SeqCst) != 0xE {
+    while SMP_TEST.load(Ordering::Acquire) != 0xE {
         asm!("wfe");
     }
 
     writeln!(stdout, "SPIN TEST: ALL OK",).unwrap();
-
-    let (ptr, w, h, stride) = Fb::init(800, 600).unwrap();
-    writeln!(stdout, "FB: {:012x} {} {} {}", ptr as usize, w, h, stride).unwrap();
 }
 
 #[inline]
@@ -222,6 +226,38 @@ pub fn device_memlist<'a>() -> impl Iterator<Item = (PhysicalAddress, usize)> {
     let list = [(PhysicalAddress::from_usize(mmio_base()), 0x1_000_000)];
     list.into_iter()
 }
+
+#[inline]
+pub fn vram_memlist<'a>() -> impl Iterator<Item = (PhysicalAddress, usize)> {
+    match Fb::get_fb() {
+        Ok((ptr, size)) => {
+            let list = [(ptr, size)];
+            list.into_iter()
+        }
+        Err(_) => {
+            let list = [(PhysicalAddress::NULL, 0)];
+            list.into_iter()
+        }
+    }
+}
+
+#[inline]
+pub fn std_screen() -> Option<(*mut TrueColor, isize, isize, usize)> {
+    let ptr = STD_SCR_PTR.load(Ordering::Relaxed) as *mut TrueColor;
+    (ptr != null_mut()).then(|| {
+        (
+            ptr,
+            STD_SCR_W.load(Ordering::Relaxed) as isize,
+            STD_SCR_H.load(Ordering::Relaxed) as isize,
+            STD_SCR_S.load(Ordering::Relaxed) as usize,
+        )
+    })
+}
+
+static STD_SCR_PTR: AtomicUsize = AtomicUsize::new(0);
+static STD_SCR_W: AtomicU32 = AtomicU32::new(0);
+static STD_SCR_H: AtomicU32 = AtomicU32::new(0);
+static STD_SCR_S: AtomicU32 = AtomicU32::new(0);
 
 #[inline]
 pub fn current_machine_type() -> MachineType {

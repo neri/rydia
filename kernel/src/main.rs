@@ -26,6 +26,28 @@ fn main(dtb: usize) -> ! {
     .unwrap();
     writeln!(stdout, "model: {}", System::model_name().unwrap(),).unwrap();
 
+    let emcon = System::em_console();
+    writeln!(
+        emcon,
+        "{} v{} [codename {}]",
+        System::name(),
+        System::version(),
+        System::codename()
+    )
+    .unwrap();
+    writeln!(emcon, "model: {}", System::model_name().unwrap(),).unwrap();
+    writeln!(
+        emcon,
+        "memory: {} KB",
+        MemoryManager::free_memory_size() >> 10
+    )
+    .unwrap();
+
+    let mut bitmap = System::main_screen().unwrap();
+    bitmap.fill_circle(Point::new(200, 200), 100, Color::LIGHT_RED);
+    bitmap.fill_circle(Point::new(300, 300), 100, Color::LIGHT_GREEN);
+    bitmap.fill_circle(Point::new(400, 200), 100, Color::LIGHT_BLUE);
+
     writeln!(
         stdout,
         "free memory: {} KB",
@@ -45,28 +67,6 @@ fn main(dtb: usize) -> ! {
         MemoryManager::free_memory_size() >> 10
     )
     .unwrap();
-
-    // let emcon = System::em_console();
-    // writeln!(
-    //     emcon,
-    //     "{} v{} [codename {}]",
-    //     System::name(),
-    //     System::version(),
-    //     System::codename()
-    // )
-    // .unwrap();
-    // writeln!(emcon, "model: {}", System::model_name().unwrap(),).unwrap();
-    // writeln!(
-    //     emcon,
-    //     "memory: {} KB",
-    //     MemoryManager::free_memory_size() >> 10
-    // )
-    // .unwrap();
-
-    // let mut bitmap = System::main_screen();
-    // bitmap.fill_circle(Point::new(200, 200), 100, Color::LIGHT_RED);
-    // bitmap.fill_circle(Point::new(300, 300), 100, Color::LIGHT_GREEN);
-    // bitmap.fill_circle(Point::new(400, 200), 100, Color::LIGHT_BLUE);
 
     loop {
         if stdout.is_input_ready() {

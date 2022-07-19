@@ -1,5 +1,8 @@
 use crate::{arch::cpu::Cpu, mem::mmio::Mmio32};
-use core::arch::asm;
+use core::{
+    arch::asm,
+    sync::atomic::{fence, Ordering},
+};
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
@@ -65,10 +68,9 @@ impl<const N: usize> MboxContext<N> {
     }
 
     #[inline]
-    unsafe fn flush(&self) {
-        for p in self.payload.0.iter() {
-            asm!("dc ivac, {}", in(reg)p);
-        }
+    unsafe fn flush_payload(&self) {
+        // fence(Ordering::SeqCst);
+        asm!("dc civac, {}", in(reg) self.payload.0.as_ptr());
     }
 
     pub fn call(&mut self) -> Result<(), ()> {
@@ -78,7 +80,8 @@ impl<const N: usize> MboxContext<N> {
                 return Err(());
             }
 
-            self.flush();
+            self.flush_payload();
+
             let mbox_addr = self.mbox_addr();
 
             while (Regs::STATUS.read() & Self::FULL) != 0 {
@@ -93,11 +96,15 @@ impl<const N: usize> MboxContext<N> {
                 }
 
                 if Regs::READ.read() == mbox_addr {
-                    return (*self.payload.0.get_unchecked(1) == Self::RESPONSE)
-                        .then_some(())
-                        .ok_or(());
+                    break;
                 }
             }
+
+            self.flush_payload();
+
+            return (*self.payload.0.get_unchecked(1) == Self::RESPONSE)
+                .then_some(())
+                .ok_or(());
         }
     }
 }
@@ -196,14 +203,14 @@ impl Tag {
     #[inline]
     const fn info(&self) -> (RawTag, u32, u32) {
         match *self {
-            Tag::SET_CLKRATE(_, _, _) => (RawTag::SETCLKRATE, 3, 2),
-            Tag::SET_PHYWH(_, _) => (RawTag::SETPHYWH, 2, 0),
-            Tag::SET_VIRTWH(_, _) => (RawTag::SETVIRTWH, 2, 2),
-            Tag::SET_VIRTOFF(_, _) => (RawTag::SETVIRTOFF, 2, 2),
-            Tag::SET_DEPTH(_) => (RawTag::SETDEPTH, 1, 1),
-            Tag::SET_PXLORDR(_) => (RawTag::SETPXLORDR, 1, 1),
-            Tag::GET_FB(_, _) => (RawTag::GETFB, 2, 2),
-            Tag::GET_PITCH => (RawTag::GETPITCH, 1, 1),
+            Tag::SET_CLKRATE(_, _, _) => (RawTag::SETCLKRATE, 12, 8),
+            Tag::SET_PHYWH(_, _) => (RawTag::SETPHYWH, 8, 0),
+            Tag::SET_VIRTWH(_, _) => (RawTag::SETVIRTWH, 8, 8),
+            Tag::SET_VIRTOFF(_, _) => (RawTag::SETVIRTOFF, 8, 8),
+            Tag::SET_DEPTH(_) => (RawTag::SETDEPTH, 4, 4),
+            Tag::SET_PXLORDR(_) => (RawTag::SETPXLORDR, 4, 4),
+            Tag::GET_FB(_, _) => (RawTag::GETFB, 8, 8),
+            Tag::GET_PITCH => (RawTag::GETPITCH, 4, 4),
         }
     }
 
@@ -232,14 +239,14 @@ impl Tag {
             Some(v) => ((*v as usize) / 4) - 1,
             None => return Err(()),
         };
-        let new_len = len0 + (len1 as usize) + 4;
+        let new_len = len0 + (((u32::max(len1, len2) + 3) / 4) as usize) + 4;
         if new_len > slice.len() {
             return Err(());
         }
         let index = len0;
         let index = Self::_push(slice, index, tag.as_u32())?;
-        let index = Self::_push(slice, index, len1 * 4)?;
-        let index = Self::_push(slice, index, len2 * 4)?;
+        let index = Self::_push(slice, index, len1)?;
+        let index = Self::_push(slice, index, len2)?;
         let result = index;
 
         let index = match *self {

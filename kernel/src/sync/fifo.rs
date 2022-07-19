@@ -118,7 +118,7 @@ impl<T> Drop for ConcurrentFifo<T> {
         }
         unsafe {
             let ptr = core::slice::from_raw_parts_mut(self.data, self.one_lap) as *mut [Slot<T>];
-            Box::from_raw(ptr);
+            drop(Box::from_raw(ptr));
         }
     }
 }

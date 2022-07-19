@@ -63,8 +63,13 @@ impl System {
             }
         }
 
-        // let main_screen = arch::fb::Fb::init(1280, 720).expect("Fb::init failed");
-        // shared.main_screen = Some(UnsafeCell::new(main_screen));
+        if let Some((ptr, w, h, stride)) = arch::std_screen() {
+            shared.main_screen = Some(UnsafeCell::new(Bitmap32::from_static(
+                ptr as *mut TrueColor,
+                Size::new(w, h),
+                stride,
+            )));
+        }
     }
 
     /// Returns the name of the current system.
@@ -92,8 +97,13 @@ impl System {
     }
 
     #[inline]
-    pub fn main_screen() -> Bitmap<'static> {
-        unsafe { &mut *Self::shared_mut().main_screen.as_mut().unwrap().get() }.into()
+    pub fn main_screen() -> Option<Bitmap<'static>> {
+        unsafe {
+            Self::shared_mut()
+                .main_screen
+                .as_mut()
+                .map(|v| Bitmap::from(v.get_mut()))
+        }
     }
 
     #[inline]

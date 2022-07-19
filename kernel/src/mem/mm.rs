@@ -9,7 +9,6 @@ use core::{
     fmt::Write,
     mem::{size_of, transmute},
     num::*,
-    slice,
     sync::atomic::*,
 };
 

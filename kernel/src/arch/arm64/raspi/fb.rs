@@ -1,5 +1,5 @@
 use super::mbox::{Mbox, Tag};
-use crate::drawing::*;
+use crate::{drawing::*, mem::PhysicalAddress};
 
 #[allow(dead_code)]
 pub struct Fb;
@@ -30,6 +30,22 @@ impl Fb {
                 let h = mbox.slice()[index_vwh + 1] as isize;
                 let stride = mbox.slice()[index_pitch] as usize / 4;
                 Ok((ptr, w, h, stride))
+            }
+            Err(_) => Err(()),
+        }
+    }
+
+    pub fn get_fb() -> Result<(PhysicalAddress, usize), ()> {
+        let mut mbox = Mbox::PROP.mbox::<36>().ok_or(())?;
+
+        let index_fb = mbox.append(Tag::GET_FB(0, 0))?;
+
+        match mbox.call() {
+            Ok(_) => {
+                let ptr =
+                    PhysicalAddress::from_usize((mbox.slice()[index_fb] & 0x3FFFFFFF) as usize);
+                let size = (mbox.slice()[index_fb + 1]) as usize;
+                Ok((ptr, size))
             }
             Err(_) => Err(()),
         }
