@@ -1,6 +1,13 @@
 //! Device Tree
 
-use core::{ffi::c_void, slice, str};
+use core::{
+    ffi::c_void,
+    ptr::null,
+    slice::{self, Iter},
+    str,
+};
+
+use crate::mem::PhysicalAddress;
 
 pub struct DeviceTree {
     header: &'static Header,
@@ -15,6 +22,9 @@ impl DeviceTree {
 
     #[inline]
     pub unsafe fn parse(ptr: *const u8) -> Result<DeviceTree, ()> {
+        if ptr == null() {
+            return Err(());
+        }
         let header = &*(ptr as *const Header);
         header.is_valid().then_some(DeviceTree { header }).ok_or(())
     }
@@ -23,6 +33,101 @@ impl DeviceTree {
     pub const fn header(&self) -> &Header {
         self.header
     }
+
+    /// Finds the specified property from the root node.
+    pub fn find_root_prop(&self, prop_name: PropName) -> Option<(*const c_void, usize)> {
+        for token in self.header().tokens() {
+            match token {
+                Token::BeginNode(name) => {
+                    if name != NodeName::ROOT {
+                        break;
+                    }
+                }
+                Token::Prop(name, ptr, len) => {
+                    if name == prop_name {
+                        return Some((ptr, len));
+                    }
+                }
+                Token::EndNode => break,
+            }
+        }
+        None
+    }
+
+    pub fn find_first_level_prop(
+        &self,
+        node_name: NodeName,
+        prop_name: PropName,
+    ) -> Option<(*const c_void, usize)> {
+        let mut current_level = -1;
+        let mut root_node_matches = false;
+        for token in self.header().tokens().into_iter() {
+            match token {
+                Token::BeginNode(name) => {
+                    root_node_matches = node_name == name.without_unit();
+                    current_level += 1;
+                }
+                Token::EndNode => {
+                    current_level -= 1;
+                }
+                Token::Prop(name, ptr, len) => {
+                    if current_level == 1 && root_node_matches && name == prop_name {
+                        return Some((ptr, len));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns the `model` property of the root element.
+    pub fn root_model<'a>(&self) -> Option<&'a str> {
+        self.find_root_prop(PropName::MODEL)
+            .and_then(|(ptr, len)| unsafe {
+                (len > 1).then(|| {
+                    let slice = slice::from_raw_parts(ptr as *const _, len - 1);
+                    core::str::from_utf8(slice).ok()
+                })
+            })
+            .flatten()
+    }
+
+    pub fn memory_ranges(&self) -> Option<impl Iterator<Item = (PhysicalAddress, usize)>> {
+        unsafe {
+            let address_cells =
+                match self
+                    .find_root_prop(PropName::ADDRESS_CELLS)
+                    .and_then(|(ptr, len)| {
+                        (len >= 4).then(|| (ptr as *const u32).read_volatile().to_be())
+                    }) {
+                    Some(v) => v as usize,
+                    None => return None,
+                };
+            let size_cells =
+                match self
+                    .find_root_prop(PropName::SIZE_CELLS)
+                    .and_then(|(ptr, len)| {
+                        (len >= 4).then(|| (ptr as *const u32).read_volatile().to_be())
+                    }) {
+                    Some(v) => v as usize,
+                    None => return None,
+                };
+            let slice = match self.find_first_level_prop(NodeName::MEMORY, PropName::REG) {
+                Some((ptr, len)) => slice::from_raw_parts(ptr as *const u32, len / 4),
+                None => return None,
+            };
+            Some(FdtMemoryRangeIter::new(slice, address_cells, size_cells))
+        }
+    }
+
+    // /// Returns the `compatible` property of the root element.
+    // pub fn root_compatible<'a>(&self) -> Option<&'a str> {
+    //     self.find_root_prop(PropName::COMPATIBLE)
+    //         .and_then(|(ptr, len)| unsafe {
+    //             let slice = slice::from_raw_parts(ptr as *const _, len);
+    //             core::str::from_utf8(slice).ok()
+    //         })
+    // }
 }
 
 #[repr(C)]
@@ -293,5 +398,52 @@ impl Iterator for FdtRsvMapIter<'_> {
                 None
             }
         }
+    }
+}
+
+struct FdtMemoryRangeIter<'a> {
+    iter: Iter<'a, u32>,
+    address_cells: usize,
+    size_cells: usize,
+}
+
+impl<'a> FdtMemoryRangeIter<'a> {
+    #[inline]
+    fn new(slice: &'a [u32], address_cells: usize, size_cells: usize) -> Self {
+        let iter = slice.into_iter();
+        Self {
+            iter,
+            address_cells,
+            size_cells,
+        }
+    }
+
+    fn fdt_get_reg_val(&mut self, cell_size: usize) -> Result<u64, ()> {
+        match cell_size {
+            1 => Ok(self.iter.next().ok_or(())?.to_be() as u64),
+            2 => {
+                let hi = self.iter.next().ok_or(())?.to_be() as u64;
+                let lo = self.iter.next().ok_or(())?.to_be() as u64;
+                Ok((hi << 32) + lo)
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl Iterator for FdtMemoryRangeIter<'_> {
+    type Item = (PhysicalAddress, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let base = match self.fdt_get_reg_val(self.address_cells) {
+            Ok(v) => PhysicalAddress::new(v),
+            Err(_) => return None,
+        };
+        let size = match self.fdt_get_reg_val(self.size_cells) {
+            Ok(v) => v as usize,
+            Err(_) => return None,
+        };
+
+        Some((base, size))
     }
 }

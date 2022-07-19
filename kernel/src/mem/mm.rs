@@ -1,5 +1,5 @@
 use super::{fixedvec::FixedVec, slab::*};
-use crate::{arch, fw::dt, sync::spinlock::SpinMutex};
+use crate::{arch, fw::dt, sync::spinlock::SpinMutex, system::System};
 use alloc::boxed::Box;
 use bitflags::*;
 use core::{
@@ -28,6 +28,10 @@ pub struct MemoryManager {
     n_fragments: AtomicUsize,
     mem_list: SpinMutex<FixedVec<MemFreePair, { Self::MAX_FREE_PAIRS }>>,
     slab: Option<Box<SlabAllocator>>,
+
+    early_start: PhysicalAddress,
+    early_end: PhysicalAddress,
+
     #[allow(dead_code)]
     real_bitmap: [u32; 8],
 }
@@ -52,11 +56,21 @@ impl MemoryManager {
             n_fragments: AtomicUsize::new(0),
             mem_list: SpinMutex::new(FixedVec::new(MemFreePair::empty())),
             slab: None,
+
+            early_start: PhysicalAddress::NULL,
+            early_end: PhysicalAddress::NULL,
+
             real_bitmap: [0; 8],
         }
     }
 
-    pub(crate) unsafe fn init_first(via: InitializationSource) {
+    pub(crate) unsafe fn init_early(start: PhysicalAddress, len: usize) {
+        let shared = Self::shared_mut();
+        shared.early_start = start;
+        shared.early_end = start + len;
+    }
+
+    pub(crate) unsafe fn init(via: InitializationSource) {
         let shared = Self::shared_mut();
 
         let free_count;
@@ -99,14 +113,12 @@ impl MemoryManager {
 
     #[inline(never)]
     unsafe fn _init_dt(dt: &dt::DeviceTree) -> Result<usize, ()> {
-        let stdout = arch::uart::Uart0::shared();
+        return Ok(0);
+        let stdout = System::stdout();
 
         let shared = Self::shared();
+
         let mut free_count = 0;
-        let mut address_cells = 0;
-        let mut size_cells = 0;
-        let mut level = 0;
-        let mut current_node = dt::NodeName::ROOT;
 
         let dt_ptr = dt.header() as *const _ as usize;
         writeln!(
@@ -127,85 +139,34 @@ impl MemoryManager {
             .unwrap();
         }
 
-        for token in dt.header().tokens().into_iter() {
-            match token {
-                dt::Token::BeginNode(name) => {
-                    current_node = name.without_unit();
-                    level += 1;
-                }
-                dt::Token::EndNode => {
-                    level -= 1;
-                }
-                dt::Token::Prop(name, ptr, len) => match (level, current_node, name) {
-                    (1, dt::NodeName::ROOT, dt::PropName::ADDRESS_CELLS) => {
-                        address_cells = (ptr as *const u32).read_volatile().to_be();
-                    }
-                    (1, dt::NodeName::ROOT, dt::PropName::SIZE_CELLS) => {
-                        size_cells = (ptr as *const u32).read_volatile().to_be();
-                    }
-                    (2, dt::NodeName::MEMORY, dt::PropName::REG) => {
-                        let slice = slice::from_raw_parts(ptr as *const u32, len / 4);
-                        let mut iter = slice.iter();
-
-                        fn dt_get_reg_val<'a>(
-                            iter: &mut impl Iterator<Item = &'a u32>,
-                            cell_size: u32,
-                        ) -> Result<u64, ()> {
-                            match cell_size {
-                                1 => Ok(iter.next().ok_or(())?.to_be() as u64),
-                                2 => {
-                                    let hi = iter.next().ok_or(())?.to_be() as u64;
-                                    let lo = iter.next().ok_or(())?.to_be() as u64;
-                                    Ok((hi << 32) + lo)
-                                }
-                                _ => Err(()),
-                            }
-                        }
-
-                        let mut list = shared.mem_list.lock();
-                        writeln!(
-                            stdout,
-                            "address_cells {address_cells}, size_cells {size_cells}",
-                        )
-                        .unwrap();
-                        loop {
-                            let base = match dt_get_reg_val(&mut iter, address_cells) {
-                                Ok(v) => PhysicalAddress::new(v),
-                                Err(_) => break,
-                            };
-                            let size = match dt_get_reg_val(&mut iter, size_cells) {
-                                Ok(v) => v as usize,
-                                Err(_) => break,
-                            };
-                            writeln!(
-                                stdout,
-                                "before: {:012x}-{:012x} ({})",
-                                base.as_u64(),
-                                (base + size - 1).as_u64(),
-                                size >> 12
-                            )
-                            .unwrap();
-                            let (base, size) = arch::fix_memlist(base, size);
-                            writeln!(
-                                stdout,
-                                "after_: {:012x}-{:012x} ({})",
-                                base.as_u64(),
-                                (base + size - 1).as_u64(),
-                                size >> 12
-                            )
-                            .unwrap();
-                            if size > 0 {
-                                list.push(MemFreePair::new(base, size)).unwrap();
-                            }
-                            free_count += size;
-                        }
-                        shared.n_fragments.store(list.len(), Ordering::Release);
-                        drop(list);
-                    }
-                    _ => (),
-                },
+        let mut list = shared.mem_list.lock();
+        for range in dt.memory_ranges().unwrap() {
+            let (base, size) = range;
+            writeln!(
+                stdout,
+                "before: {:012x}-{:012x} ({})",
+                base.as_u64(),
+                (base + size - 1).as_u64(),
+                size >> 12
+            )
+            .unwrap();
+            let (base, size) = arch::fix_memlist(base, size);
+            writeln!(
+                stdout,
+                "after_: {:012x}-{:012x} ({})",
+                base.as_u64(),
+                (base + size - 1).as_u64(),
+                size >> 12
+            )
+            .unwrap();
+            if size > 0 {
+                list.push(MemFreePair::new(base, size)).unwrap();
             }
+            free_count += size;
         }
+        shared.n_fragments.store(list.len(), Ordering::Release);
+        drop(list);
+
         Ok(free_count)
     }
 
@@ -255,6 +216,24 @@ impl MemoryManager {
     pub fn free_memory_size() -> usize {
         let shared = Self::shared();
         shared.free_pages.load(Ordering::Acquire)
+    }
+
+    ///
+    /// # SAFETY
+    ///
+    /// THREAD UNSAFE
+    pub unsafe fn early_alloc(layout: Layout) -> Option<NonNullPhysicalAddress> {
+        let shared = Self::shared_mut();
+        let start = shared
+            .early_start
+            .rounding_up(usize::max(0x1000, layout.align()));
+        let new_start = start + layout.size();
+        if new_start <= shared.early_end {
+            shared.early_start = new_start;
+            NonNullPhysicalAddress::new(start)
+        } else {
+            None
+        }
     }
 
     /// Allocate pages
@@ -310,7 +289,7 @@ impl MemoryManager {
     pub unsafe fn alloc_pages(size: usize) -> Option<NonNullPhysicalAddress> {
         let result = Self::pg_alloc(Layout::from_size_align_unchecked(size, Self::PAGE_SIZE_MIN));
         if let Some(p) = result {
-            let p = p.get().direct_map::<c_void>();
+            let p = p.get().direct_mapped::<c_void>();
             p.write_bytes(0, size);
         }
         result
@@ -321,7 +300,7 @@ impl MemoryManager {
     pub unsafe fn alloc_dma<T>(len: usize) -> Option<(PhysicalAddress, *mut T)> {
         Self::alloc_pages(size_of::<T>() * len).map(|v| {
             let pa = v.get();
-            (pa, pa.direct_map())
+            (pa, pa.direct_mapped())
         })
     }
 
@@ -342,7 +321,7 @@ impl MemoryManager {
     #[must_use]
     pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
-            .and_then(|v| NonZeroUsize::new(v.get().direct_map::<c_void>() as usize))
+            .and_then(|v| NonZeroUsize::new(v.get().direct_mapped::<c_void>() as usize))
             .map(|v| {
                 LAST_ALLOC_PTR.store(v.get(), core::sync::atomic::Ordering::SeqCst);
                 v

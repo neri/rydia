@@ -16,7 +16,12 @@ impl Cpu {
     #[inline]
     pub fn spin_loop_hint() {
         unsafe {
-            asm!("nop");
+            asm!(
+                "
+            sevl
+            wfe
+            "
+            );
         }
     }
 
@@ -29,17 +34,31 @@ impl Cpu {
 
     #[inline]
     pub unsafe fn enable_interrupt() {
-        // TODO:
+        asm!("
+        mrs {0}, daif
+        bic {0}, {0}, #0x3C0
+        msr daif, {0}
+        ", out(reg)_, options(nomem, nostack));
     }
 
     #[inline]
     pub unsafe fn disable_interrupt() {
-        // TODO:
+        asm!("
+        mrs {0}, daif
+        orr {0}, {0}, #0x3C0
+        msr daif, {0}
+        ", out(reg)_, options(nomem, nostack));
     }
 
     #[inline]
     pub unsafe fn interrupt_guard() -> InterruptGuard {
-        InterruptGuard(0)
+        let old: usize;
+        asm!("
+        mrs {0}, daif
+        orr {1}, {0}, #0x3C0
+        msr daif, {1}
+        ", out(reg)old, out(reg)_, options(nomem, nostack));
+        InterruptGuard(old & 0x3C0)
     }
 
     #[inline]

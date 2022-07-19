@@ -5,10 +5,14 @@ use crate::{
     drawing::*,
     fw,
     fw::dt,
-    io::{emcon::EmConsole, font::FontManager},
+    io::{emcon::EmConsole, font::FontManager, uart::Uart},
     mem,
 };
-use core::{cell::UnsafeCell, ptr::null, slice};
+use core::{
+    cell::UnsafeCell,
+    fmt::{self},
+    ptr::null,
+};
 
 static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
@@ -16,10 +20,17 @@ pub struct System {
     main_screen: Option<UnsafeCell<Bitmap32<'static>>>,
     em_console: EmConsole,
     device_tree: Option<fw::dt::DeviceTree>,
+    #[allow(dead_code)]
     model_name: (*const u8, usize),
 }
 
 impl System {
+    const SYSTEM_NAME: &'static str = "rydia";
+    const SYSTEMN_CODENAME: &'static str = "RYDIA";
+    const SYSTEM_SHORT_NAME: &'static str = "rydia";
+    const RELEASE: &'static str = "";
+    const VERSION: Version<'static> = Version::new(0, 0, 1, Self::RELEASE);
+
     const fn new() -> Self {
         Self {
             main_screen: None,
@@ -43,36 +54,41 @@ impl System {
     pub unsafe fn init(dtb: usize) {
         let shared = Self::shared_mut();
 
-        arch::init_minimal();
+        arch::init_early(dtb);
 
         if dtb != 0 {
             if let Some(dt) = dt::DeviceTree::parse(dtb as *const u8).ok() {
-                mem::MemoryManager::init_first(mem::InitializationSource::DeviceTree(&dt));
+                mem::MemoryManager::init(mem::InitializationSource::DeviceTree(&dt));
                 shared.device_tree = Some(dt);
             }
         }
 
-        if let Some(dt) = shared.device_tree.as_ref() {
-            for token in dt.header().tokens() {
-                match token {
-                    dt::Token::BeginNode(name) => {
-                        if name != dt::NodeName::ROOT {
-                            break;
-                        }
-                    }
-                    dt::Token::Prop(name, ptr, len) => match name {
-                        dt::PropName::MODEL => {
-                            shared.model_name = (ptr as _, len);
-                        }
-                        _ => (),
-                    },
-                    dt::Token::EndNode => break,
-                }
-            }
-        }
+        // let main_screen = arch::fb::Fb::init(1280, 720).expect("Fb::init failed");
+        // shared.main_screen = Some(UnsafeCell::new(main_screen));
+    }
 
-        let main_screen = arch::fb::Fb::init(1280, 720).expect("Fb::init failed");
-        shared.main_screen = Some(UnsafeCell::new(main_screen));
+    /// Returns the name of the current system.
+    #[inline]
+    pub const fn name() -> &'static str {
+        &Self::SYSTEM_NAME
+    }
+
+    /// Returns the codename of the current system.
+    #[inline]
+    pub const fn codename() -> &'static str {
+        &Self::SYSTEMN_CODENAME
+    }
+
+    /// Returns abbreviated name of the current system.
+    #[inline]
+    pub const fn short_name() -> &'static str {
+        &Self::SYSTEM_SHORT_NAME
+    }
+
+    /// Returns the version of the current system.
+    #[inline]
+    pub const fn version<'a>() -> &'a Version<'a> {
+        &Self::VERSION
     }
 
     #[inline]
@@ -91,13 +107,69 @@ impl System {
     }
 
     #[inline]
+    pub fn stdout<'a>() -> &'a mut dyn Uart {
+        arch::std_uart()
+    }
+
+    #[inline]
     pub fn model_name<'a>() -> Option<&'a str> {
-        let shared = Self::shared();
-        (shared.model_name.1 > 0)
-            .then(|| unsafe {
-                let slice = slice::from_raw_parts(shared.model_name.0, shared.model_name.1);
-                core::str::from_utf8(slice).ok()
-            })
-            .flatten()
+        Self::device_tree().and_then(|dt| dt.root_model())
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version<'a> {
+    versions: u32,
+    rel: &'a str,
+}
+
+impl Version<'_> {
+    #[inline]
+    pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
+        let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
+        Version { versions, rel }
+    }
+
+    #[inline]
+    pub const fn as_u32(&self) -> u32 {
+        self.versions
+    }
+
+    #[inline]
+    pub const fn maj(&self) -> usize {
+        ((self.versions >> 24) & 0xFF) as usize
+    }
+
+    #[inline]
+    pub const fn min(&self) -> usize {
+        ((self.versions >> 16) & 0xFF) as usize
+    }
+
+    #[inline]
+    pub const fn patch(&self) -> usize {
+        (self.versions & 0xFFFF) as usize
+    }
+
+    #[inline]
+    pub const fn rel(&self) -> &str {
+        &self.rel
+    }
+}
+
+impl fmt::Display for Version<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.rel().len() > 0 {
+            write!(
+                f,
+                "{}.{}.{}-{}",
+                self.maj(),
+                self.min(),
+                self.patch(),
+                self.rel(),
+            )
+        } else {
+            write!(f, "{}.{}.{}", self.maj(), self.min(), self.patch())
+        }
     }
 }

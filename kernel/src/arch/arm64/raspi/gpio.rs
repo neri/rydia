@@ -1,7 +1,6 @@
-use crate::mem::mmio::*;
+use crate::{arch::cpu::Cpu, mem::mmio::*};
 
-use super::{cpu::Cpu, raspi};
-
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Gpio {
     Pin00 = 0,
@@ -60,6 +59,7 @@ pub enum Gpio {
     Pin53,
 }
 
+#[allow(dead_code)]
 impl Gpio {
     pub const FUNCTION_OUT: u32 = 1;
     pub const FUNCTION_ALT5: u32 = 2;
@@ -152,8 +152,8 @@ impl Gpio {
     }
 }
 
-#[repr(usize)]
 #[allow(dead_code)]
+#[repr(usize)]
 #[derive(Debug, Clone, Copy)]
 enum Regs {
     GPFSEL0 = 0x0000,
@@ -183,10 +183,11 @@ enum Regs {
     GPPUPPDN0 = 0x00E4,
 }
 
+#[allow(dead_code)]
 impl Regs {
     #[inline]
     unsafe fn base_addr(&self) -> usize {
-        raspi::mmio_base() + 0x0020_0000 + *self as usize
+        super::mmio_base() + 0x0020_0000 + *self as usize
     }
 
     #[inline]

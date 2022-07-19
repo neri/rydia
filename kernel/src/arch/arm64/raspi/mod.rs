@@ -1,12 +1,22 @@
-use crate::mem::PhysicalAddress;
-use core::fmt::Write;
+use crate::{
+    arch::{arm64::raspi::fb::Fb, cpu::Cpu},
+    mem::{mmio, PhysicalAddress},
+    system::System,
+};
 use core::{
     arch::asm,
+    fmt::Write,
     intrinsics::transmute,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use super::uart;
+use super::{page::PageManager, spin::Spinlock};
+
+pub mod fb;
+pub mod gpio;
+pub mod mbox;
+pub mod timer;
+pub mod uart;
 
 #[no_mangle]
 #[naked]
@@ -85,21 +95,37 @@ pub(super) fn _end() -> PhysicalAddress {
 }
 
 static SMP_TOKEN: AtomicUsize = AtomicUsize::new(1);
+static SMP_BLOCK1: AtomicUsize = AtomicUsize::new(0);
+static SMP_LOCK: Spinlock = Spinlock::new();
+static SMP_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[no_mangle]
-unsafe fn _smp_main(_dtb: usize, cpuid: usize) -> ! {
+unsafe fn _smp_main(_: usize, cpuid: usize) -> ! {
     while SMP_TOKEN.load(Ordering::Acquire) != cpuid {
         asm!("wfe");
     }
 
-    let stdout = super::uart::Uart0::shared();
+    let stdout = System::stdout();
     writeln!(stdout, "SMP: started core #{}", cpuid).unwrap();
 
     SMP_TOKEN.store(cpuid + 1, Ordering::Release);
     asm!("sev");
 
+    PageManager::init_mp();
+
+    while SMP_BLOCK1.load(Ordering::SeqCst) == 0 {
+        asm!("nop");
+    }
+
+    SMP_LOCK.synchronized(|| {
+        writeln!(stdout, "SPIN TEST: #{} OK", cpuid).unwrap();
+    });
+
+    SMP_TEST.fetch_or(1 << cpuid, Ordering::SeqCst);
+    asm!("sev");
+
     loop {
-        asm!("wfi");
+        Cpu::wait_for_interrupt();
     }
 }
 
@@ -119,27 +145,24 @@ unsafe fn _wake_smp() -> usize {
     cpus
 }
 
-fn _test_spin(val: &mut u64) -> (u32, u64, usize) {
+fn _test_spin(val: &mut u64) -> (u32, u64) {
     let status: u32;
     let result: u64;
-    let ptr = unsafe {
+    unsafe {
         asm!("
         ldaxr {1}, [{2}]
         add {1}, {1}, #1 
         stlxr {0:w}, {1}, [{2}]
         ldar {3}, [{2}]
         ", out(reg) status, out(reg)_, in(reg)val, out(reg)result);
-        val as *const _ as usize
     };
-    (status, result, ptr)
+    (status, result)
 }
 
-pub(super) fn init() {
+pub(super) unsafe fn init_early(dtb: usize) {
     // detect board
     let midr_el1: usize;
-    unsafe {
-        asm!("mrs {}, midr_el1", out(reg) midr_el1);
-    }
+    asm!("mrs {}, midr_el1", out(reg) midr_el1);
     CURRENT_MACHINE_TYPE.store(
         (match (midr_el1 >> 4) & 0xFFF {
             // 0xB76 => // rpi1
@@ -161,27 +184,43 @@ pub(super) fn init() {
     );
 
     uart::Uart0::init().unwrap();
-    let stdout = uart::Uart0::shared();
 
+    crate::mem::MemoryManager::init_early(_end().rounding_up(0x1000), 0x40_0000);
+    PageManager::init_early(dtb);
+
+    let stdout = super::std_uart();
     writeln!(stdout, "\nStarting RasPi...").unwrap();
 
-    let cpus = unsafe { _wake_smp() };
-    writeln!(stdout, "Total {cpus} cores OK").unwrap();
-
-    let current_el: usize;
-    unsafe {
-        asm!("mrs {}, currentel", out(reg)current_el);
-    }
-    writeln!(stdout, "current el{}", (current_el >> 2) & 3).unwrap();
+    let cpus = _wake_smp();
+    writeln!(stdout, "Total {cpus} cores").unwrap();
+    PageManager::init_mp();
 
     let mut test = 0x12345678;
-    let (status, val, ptr) = _test_spin(&mut test);
-    writeln!(
-        stdout,
-        "SPIN TEST: {} {:x} {:x} @{:012x}\n",
-        status, val, test, ptr
-    )
-    .unwrap();
+    let (status, val) = _test_spin(&mut test);
+    writeln!(stdout, "SPIN TEST: {} {:x} {:x}", status, val, test).unwrap();
+
+    SMP_BLOCK1.store(1, Ordering::SeqCst);
+    asm!("sev");
+
+    while SMP_TEST.load(Ordering::SeqCst) != 0xE {
+        asm!("wfe");
+    }
+
+    writeln!(stdout, "SPIN TEST: ALL OK",).unwrap();
+
+    let (ptr, w, h, stride) = Fb::init(800, 600).unwrap();
+    writeln!(stdout, "FB: {:012x} {} {} {}", ptr as usize, w, h, stride).unwrap();
+}
+
+#[inline]
+pub(super) fn max_pa() -> PhysicalAddress {
+    PhysicalAddress::new(0x1_0000_0000)
+}
+
+#[inline]
+pub fn device_memlist<'a>() -> impl Iterator<Item = (PhysicalAddress, usize)> {
+    let list = [(PhysicalAddress::from_usize(mmio_base()), 0x1_000_000)];
+    list.into_iter()
 }
 
 #[inline]
@@ -203,6 +242,6 @@ pub enum MachineType {
 static MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 
 #[inline]
-pub fn mmio_base() -> usize {
+fn mmio_base() -> usize {
     MMIO_BASE.load(Ordering::Relaxed)
 }

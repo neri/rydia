@@ -1,6 +1,6 @@
-use super::raspi::mmio_base;
 use crate::mem::mmio::Mmio32;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum SystemTimer {
     CS = 0x00,
@@ -15,7 +15,7 @@ pub enum SystemTimer {
 unsafe impl Mmio32 for SystemTimer {
     #[inline]
     fn addr(&self) -> usize {
-        mmio_base() + 0x3000 + *self as usize
+        super::mmio_base() + 0x3000 + *self as usize
     }
 }
 

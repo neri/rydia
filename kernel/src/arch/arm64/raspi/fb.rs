@@ -1,10 +1,12 @@
 use super::mbox::{Mbox, Tag};
 use crate::drawing::*;
 
+#[allow(dead_code)]
 pub struct Fb;
 
+#[allow(dead_code)]
 impl Fb {
-    pub fn init(width: u32, height: u32) -> Result<Bitmap32<'static>, ()> {
+    pub fn init(width: u32, height: u32) -> Result<(*mut TrueColor, isize, isize, usize), ()> {
         let mut mbox = Mbox::PROP.mbox::<36>().ok_or(())?;
 
         mbox.append(Tag::SET_PHYWH(width, height))?;
@@ -27,7 +29,7 @@ impl Fb {
                 let w = mbox.slice()[index_vwh] as isize;
                 let h = mbox.slice()[index_vwh + 1] as isize;
                 let stride = mbox.slice()[index_pitch] as usize / 4;
-                Ok(unsafe { Bitmap32::from_static(ptr, Size::new(w, h), stride) })
+                Ok((ptr, w, h, stride))
             }
             Err(_) => Err(()),
         }

@@ -1,6 +1,7 @@
-use super::{cpu::Cpu, raspi};
-use crate::mem::mmio::Mmio32;
+use crate::{arch::cpu::Cpu, mem::mmio::Mmio32};
+use core::arch::asm;
 
+#[allow(dead_code)]
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy)]
 pub enum Mbox {
@@ -63,6 +64,13 @@ impl<const N: usize> MboxContext<N> {
         p | (self.chan as u32)
     }
 
+    #[inline]
+    unsafe fn flush(&self) {
+        for p in self.payload.0.iter() {
+            asm!("dc ivac, {}", in(reg)p);
+        }
+    }
+
     pub fn call(&mut self) -> Result<(), ()> {
         unsafe {
             let len0 = *self.payload.0.get_unchecked(0) as usize;
@@ -70,6 +78,7 @@ impl<const N: usize> MboxContext<N> {
                 return Err(());
             }
 
+            self.flush();
             let mbox_addr = self.mbox_addr();
 
             while (Regs::STATUS.read() & Self::FULL) != 0 {
@@ -108,7 +117,7 @@ enum Regs {
 impl Regs {
     #[inline]
     pub fn base_addr() -> usize {
-        raspi::mmio_base() + 0x0000_B880
+        super::mmio_base() + 0x0000_B880
     }
 }
 
@@ -122,6 +131,7 @@ unsafe impl Mmio32 for Regs {
 #[repr(align(16))]
 pub struct Payload<const N: usize>([u32; N]);
 
+#[allow(dead_code)]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy)]
 pub enum RawTag {
@@ -150,6 +160,7 @@ impl RawTag {
     }
 }
 
+#[allow(dead_code)]
 #[repr(u32)]
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy)]

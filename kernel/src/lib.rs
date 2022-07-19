@@ -5,6 +5,8 @@
 #![feature(lang_items)]
 #![feature(naked_functions)]
 #![feature(negative_impls)]
+#![feature(default_free_fn)]
+#![feature(step_trait)]
 
 #[macro_use]
 pub mod arch;
@@ -14,15 +16,15 @@ pub mod mem;
 pub mod sync;
 pub mod system;
 pub use meggl as drawing;
+use system::System;
 extern crate alloc;
 
-use arch::uart::Uart0;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    let uart = Uart0::shared();
-    let _ = writeln!(uart, "!!! PANIC: {}", info);
+    let stdout = System::stdout();
+    let _ = writeln!(stdout, "!!! PANIC: {}", info);
     loop {}
 }
 

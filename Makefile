@@ -16,7 +16,7 @@ $(MNT):
 	mkdir $(MNT)
 
 kernel:
-	(cd kernel; cargo build --release)
+	(cd kernel; cargo build --release --target aarch64-unknown-none)
 
 install: $(MNT) kernel
 	$(OBJCOPY) -O binary kernel/target/aarch64-unknown-none/release/rydia mnt/kernel8.img

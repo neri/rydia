@@ -1,17 +1,21 @@
-use super::{cpu::*, gpio::*, mbox::*, raspi};
-use crate::mem::mmio::*;
-use core::fmt::Write;
+use super::{gpio::*, mbox::*, *};
+use crate::{arch::cpu::Cpu, io::uart::Uart, mem::mmio::*};
+pub use core::fmt::Write;
 
-pub struct Uart;
+#[allow(dead_code)]
+pub struct MiniUart;
 
-static mut UART: Uart = Uart {};
+#[allow(dead_code)]
+static mut UART: MiniUart = MiniUart {};
+#[allow(dead_code)]
 static mut UART0: Uart0 = Uart0::CR;
 
-impl Uart {
+#[allow(dead_code)]
+impl MiniUart {
     pub const CLOCK: u32 = 500_000_000;
 
     #[inline]
-    pub fn shared<'a>() -> &'a mut Uart {
+    pub fn shared<'a>() -> &'a mut MiniUart {
         unsafe { &mut UART }
     }
 
@@ -37,14 +41,14 @@ impl Uart {
             Uart1::IIR.write(0xC6); //disable interrupts
 
             // TODO:
-            match raspi::current_machine_type() {
-                raspi::MachineType::Unknown => {
+            match current_machine_type() {
+                MachineType::Unknown => {
                     //
                 }
-                raspi::MachineType::RPi3 => {
+                MachineType::RPi3 => {
                     Uart1::BAUD.write(270);
                 }
-                raspi::MachineType::RPi4 => {
+                MachineType::RPi4 => {
                     Uart1::BAUD.write(Self::baud(115200));
                 }
             }
@@ -82,19 +86,6 @@ impl Uart {
     }
 }
 
-impl Write for Uart {
-    #[inline]
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        for ch in s.chars() {
-            if ch == '\n' {
-                self.write_byte('\r' as u8);
-            }
-            self.write_byte(ch as u8);
-        }
-        Ok(())
-    }
-}
-
 /// Uart 0 (PL011)
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
@@ -123,7 +114,7 @@ pub enum Uart0 {
 unsafe impl Mmio32 for Uart0 {
     #[inline]
     fn addr(&self) -> usize {
-        raspi::mmio_base() + 0x20_1000 + *self as usize
+        super::mmio_base() + 0x20_1000 + *self as usize
     }
 }
 
@@ -166,18 +157,20 @@ impl Uart0 {
         }
         Ok(())
     }
+}
 
+impl Uart for Uart0 {
     #[inline]
-    pub fn is_output_ready(&self) -> bool {
+    fn is_output_ready(&mut self) -> bool {
         unsafe { (Uart0::FR.read() & 0x20) == 0 }
     }
 
     #[inline]
-    pub fn is_input_ready(&self) -> bool {
+    fn is_input_ready(&mut self) -> bool {
         unsafe { (Uart0::FR.read() & 0x10) == 0 }
     }
 
-    pub fn write_byte(&self, ch: u8) {
+    fn write_byte(&mut self, ch: u8) {
         while !self.is_output_ready() {
             Cpu::no_op();
         }
@@ -186,24 +179,11 @@ impl Uart0 {
         }
     }
 
-    pub fn read_byte(&self) -> u8 {
+    fn read_byte(&mut self) -> u8 {
         while !self.is_input_ready() {
             Cpu::no_op();
         }
         unsafe { Uart0::DR.read() as u8 }
-    }
-}
-
-impl Write for Uart0 {
-    #[inline]
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        for ch in s.chars() {
-            if ch == '\n' {
-                self.write_byte('\r' as u8);
-            }
-            self.write_byte(ch as u8);
-        }
-        Ok(())
     }
 }
 
@@ -229,6 +209,6 @@ enum Uart1 {
 unsafe impl Mmio32 for Uart1 {
     #[inline]
     fn addr(&self) -> usize {
-        raspi::mmio_base() + 0x21_5000 + *self as usize
+        super::mmio_base() + 0x21_5000 + *self as usize
     }
 }
